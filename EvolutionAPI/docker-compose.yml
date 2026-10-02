@@ -1,0 +1,41 @@
+name: evolution-api-stack
+
+services:
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    container_name: evolution-api
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - evolution-net
+    env_file:
+      - .env
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+
+  evolution-manager:
+    image: evoapicloud/evolution-manager:latest
+    container_name: evolution-manager
+    restart: always
+    ports:
+      - "8081:80"
+    networks:
+      - evolution-net
+    environment:
+      - VITE_EVOLUTION_API_URL=http://localhost:8080
+      - BACKEND_URL=http://localhost:8080
+    volumes:
+      - ./nginx-manager.conf:/etc/nginx/conf.d/nginx.conf:ro
+    depends_on:
+      - evolution-api
+
+volumes:
+  evolution_instances:
+  evolution_store:
+
+networks:
+  evolution-net:
+    name: evolution-net
+    external: true
