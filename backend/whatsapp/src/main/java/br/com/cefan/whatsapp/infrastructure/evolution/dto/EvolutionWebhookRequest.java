@@ -20,6 +20,7 @@ public class EvolutionWebhookRequest {
         private MessageContent message;
         private String messageType;
         private Long messageTimestamp;
+        private String base64;
     }
 
     @Data
@@ -35,12 +36,23 @@ public class EvolutionWebhookRequest {
     public static class MessageContent {
         private String conversation;
         private ExtendedTextMessage extendedTextMessage;
+        private ImageMessage imageMessage;
     }
 
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ExtendedTextMessage {
         private String text;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ImageMessage {
+        private String caption;
+        private String mimetype;
+        private String url;
+        private String mediaKey;
+        private String base64;
     }
 
     public String extractMessageText() {
@@ -52,6 +64,39 @@ public class EvolutionWebhookRequest {
         }
         if (data.message.extendedTextMessage != null && data.message.extendedTextMessage.text != null) {
             return data.message.extendedTextMessage.text;
+        }
+        if (data.message.imageMessage != null && data.message.imageMessage.caption != null) {
+            return data.message.imageMessage.caption;
+        }
+        return null;
+    }
+
+    public boolean hasImage() {
+        return (data != null && data.message != null && data.message.imageMessage != null) ||
+               (data != null && "imageMessage".equalsIgnoreCase(data.messageType));
+    }
+
+    public ImageMessage getImageMessage() {
+        return (data != null && data.message != null) ? data.message.imageMessage : null;
+    }
+
+    public String extractMessageId() {
+        return (data != null && data.key != null) ? data.key.id : null;
+    }
+
+    public String extractImageMimeType() {
+        if (data != null && data.message != null && data.message.imageMessage != null && data.message.imageMessage.mimetype != null) {
+            return data.message.imageMessage.mimetype;
+        }
+        return "image/jpeg";
+    }
+
+    public String extractBase64() {
+        if (data != null && data.message != null && data.message.imageMessage != null && data.message.imageMessage.base64 != null) {
+            return data.message.imageMessage.base64;
+        }
+        if (data != null && data.base64 != null) {
+            return data.base64;
         }
         return null;
     }

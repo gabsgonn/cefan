@@ -1,11 +1,15 @@
 package br.com.cefan.whatsapp.infrastructure.evolution;
 
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.SendTextMessageRequest;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+
+import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -50,5 +54,35 @@ public class EvolutionApiClient {
 
     public void sendTextMessage(String recipientNumber, String text) {
         sendTextMessage(defaultInstance, recipientNumber, text);
+    }
+
+    public Optional<String> getBase64FromMediaMessage(String instance, String messageId) {
+        String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
+        if (messageId == null || messageId.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            Map<String, Object> body = Map.of(
+                    "message", Map.of("key", Map.of("id", messageId)),
+                    "convertToMp4", false
+            );
+
+            JsonNode response = restClient.post()
+                    .uri("/chat/getBase64FromMediaMessage/{instance}", targetInstance)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            if (response != null && response.has("base64")) {
+                String base64 = response.get("base64").asText();
+                if (base64 != null && !base64.isBlank()) {
+                    return Optional.of(base64);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Mídia da mensagem [{}] não pôde ser baixada via Evolution API: {}", messageId, e.getMessage());
+        }
+        return Optional.empty();
     }
 }
