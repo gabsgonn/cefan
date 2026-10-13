@@ -1,8 +1,8 @@
 package br.com.cefan.whatsapp.application.service;
 
+import br.com.cefan.whatsapp.application.statemachine.ConversationStateMachineService;
 import br.com.cefan.whatsapp.domain.model.Customer;
 import br.com.cefan.whatsapp.domain.repository.CustomerRepository;
-import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MessageHandlingService {
 
     private final CustomerRepository customerRepository;
-    private final EvolutionApiClient evolutionApiClient;
+    private final ConversationStateMachineService stateMachineService;
 
     @Transactional
     public void handleIncomingMessage(EvolutionWebhookRequest webhook) {
@@ -26,9 +26,10 @@ public class MessageHandlingService {
 
         String phone = webhook.extractSenderPhone();
         String messageText = webhook.extractMessageText();
+        boolean hasImage = webhook.hasImage();
 
-        if (phone == null || messageText == null || messageText.isBlank()) {
-            log.debug("Mensagem sem texto ou remetente inválido.");
+        if (phone == null || ((messageText == null || messageText.isBlank()) && !hasImage)) {
+            log.debug("Mensagem sem texto/mídia ou remetente inválido.");
             return;
         }
 
@@ -36,7 +37,7 @@ public class MessageHandlingService {
                 ? webhook.getData().getPushName()
                 : "Cliente";
 
-        log.info("Mensagem recebida de [{}] ({}): {}", pushName, phone, messageText);
+        log.info("Mensagem recebida de [{}] ({}): {}", pushName, phone, messageText != null ? messageText : "[Imagem]");
 
         // Encontra ou cria o cliente no banco de dados do CEFAN
         Customer customer = customerRepository.findByPhone(phone)
@@ -48,14 +49,7 @@ public class MessageHandlingService {
                             .build());
                 });
 
-        // Resposta básica de boas-vindas / recepção (Fundação Semana 1)
-        String replyText = String.format(
-                "Olá, %s! 🎨 Bem-vindo ao estúdio!\n\n" +
-                "Recebemos sua mensagem: \"%s\"\n\n" +
-                "Em breve nosso assistente estará com o fluxo completo de orçamentos e agendamentos ativo.",
-                customer.getName(), messageText
-        );
-
-        evolutionApiClient.sendTextMessage(webhook.getInstance(), phone, replyText);
+        // Processa a mensagem através da Máquina de Estados da Conversa
+        stateMachineService.process(customer, webhook);
     }
 }
