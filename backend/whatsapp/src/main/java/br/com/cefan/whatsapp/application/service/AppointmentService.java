@@ -119,6 +119,7 @@ public class AppointmentService {
             appointment.setIsTouchup(request.getIsTouchup());
             if (Boolean.TRUE.equals(request.getIsTouchup())) {
                 appointment.setTotalPrice(BigDecimal.ZERO);
+                appointment.setDepositAmount(BigDecimal.ZERO);
             }
         }
 
@@ -134,5 +135,20 @@ public class AppointmentService {
 
         appointment = appointmentRepository.save(appointment);
         return AppointmentResponse.fromEntity(appointment);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse.AuditLogDto> getAuditLogs(UUID appointmentId) {
+        return auditLogRepository.findByAppointmentIdOrderByChangedAtDesc(appointmentId)
+                .stream()
+                .map(logItem -> AppointmentResponse.AuditLogDto.builder()
+                        .id(logItem.getId())
+                        .appointmentId(appointmentId)
+                        .oldValue(logItem.getOldValue())
+                        .newValue(logItem.getNewValue())
+                        .reason(logItem.getReason())
+                        .changedAt(logItem.getChangedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

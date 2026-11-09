@@ -41,7 +41,7 @@ describe('AppointmentService', () => {
       expect(res[0].customerName).toBe('Cliente Teste');
     });
 
-    const req = httpMock.expectOne('http://localhost:8080/api/v1/appointments?status=CONFIRMADO');
+    const req = httpMock.expectOne('http://localhost:8082/api/v1/appointments?status=CONFIRMADO');
     expect(req.request.method).toBe('GET');
     req.flush(mockAppointments);
     httpMock.verify();
@@ -67,7 +67,7 @@ describe('AppointmentService', () => {
       expect(res.totalPrice).toBe(400);
     });
 
-    const req = httpMock.expectOne('http://localhost:8080/api/v1/appointments/123e4567-e89b-12d3-a456-426614174000');
+    const req = httpMock.expectOne('http://localhost:8082/api/v1/appointments/123e4567-e89b-12d3-a456-426614174000');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body.reasonForChange).toBe('Cliente pediu para aumentar tamanho');
     req.flush(mockUpdated);

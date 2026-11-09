@@ -2,7 +2,9 @@ import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TenantConfigService } from '../../core/services/tenant-config.service';
+import { AppointmentService } from '../../core/services/appointment.service';
 import { TenantConfig } from '../../core/models/tenant-config.model';
+import { NotificationPreferences } from '../../core/models/appointment.model';
 
 @Component({
   selector: 'app-configuracoes',
@@ -129,6 +131,44 @@ import { TenantConfig } from '../../core/models/tenant-config.model';
                 Política Vício Tattoo: Retoques dentro do prazo são 100% gratuitos (Sem cobrança de sinal).
               </p>
             </div>
+          </div>
+
+          <div class="card-header" style="margin-top: 1.75rem;">
+            <h3>Preferências de Notificações & Alertas</h3>
+            <p>Defina quais eventos disparam alertas em tempo real para o estúdio:</p>
+          </div>
+
+          <div class="toggle-container">
+            <div class="toggle-text">
+              <span class="toggle-title">Alerta de Atendimento Humano (Opção 3)</span>
+              <span class="toggle-desc">Notificar quando um cliente solicitar falar diretamente com o tatuador.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" [(ngModel)]="notifPrefs.notifyHumanRequest" (change)="saveNotificationPrefs()" />
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="toggle-container">
+            <div class="toggle-text">
+              <span class="toggle-title">Confirmação de Sinal PIX (Mercado Pago)</span>
+              <span class="toggle-desc">Notificar imediatamente quando um pagamento de 30% for aprovado.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" [(ngModel)]="notifPrefs.notifyPaymentReceived" (change)="saveNotificationPrefs()" />
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <div class="toggle-container" style="margin-bottom: 0;">
+            <div class="toggle-text">
+              <span class="toggle-title">Novos Leads no WhatsApp</span>
+              <span class="toggle-desc">Notificar quando um novo cliente iniciar conversa pela primeira vez.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" [(ngModel)]="notifPrefs.notifyNewLead" (change)="saveNotificationPrefs()" />
+              <span class="slider round"></span>
+            </label>
           </div>
         </div>
       </div>
@@ -361,6 +401,7 @@ import { TenantConfig } from '../../core/models/tenant-config.model';
 })
 export class ConfiguracoesComponent implements OnInit {
   private readonly configService = inject(TenantConfigService);
+  private readonly adminService = inject(AppointmentService);
 
   readonly saving = signal<boolean>(false);
   readonly feedbackMessage = signal<string | null>(null);
@@ -373,8 +414,42 @@ export class ConfiguracoesComponent implements OnInit {
     absorbCreditCardFees: true
   };
 
+  notifPrefs: NotificationPreferences = {
+    notifyNewLead: true,
+    notifyPaymentReceived: true,
+    notifyHumanRequest: true
+  };
+
   ngOnInit(): void {
     this.loadConfig();
+    this.loadNotificationPrefs();
+  }
+
+  loadNotificationPrefs(): void {
+    this.adminService.getNotificationPreferences().subscribe({
+      next: (prefs) => {
+        if (prefs) {
+          this.notifPrefs = {
+            notifyNewLead: prefs.notifyNewLead ?? true,
+            notifyPaymentReceived: prefs.notifyPaymentReceived ?? true,
+            notifyHumanRequest: prefs.notifyHumanRequest ?? true
+          };
+        }
+      },
+      error: () => {}
+    });
+  }
+
+  saveNotificationPrefs(): void {
+    this.adminService.updateNotificationPreferences(this.notifPrefs).subscribe({
+      next: (updated) => {
+        this.notifPrefs = updated;
+        this.showToast('Preferências de notificação atualizadas!');
+      },
+      error: () => {
+        this.showToast('Erro ao salvar preferências de notificação.', 'error');
+      }
+    });
   }
 
   loadConfig(): void {

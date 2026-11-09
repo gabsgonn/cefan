@@ -8,7 +8,7 @@ import { TenantConfig } from '../models/tenant-config.model';
 })
 export class TenantConfigService {
   private readonly http = inject(HttpClient);
-  private readonly baseUrl = 'http://localhost:8080/api/v1/tenant-configs';
+  private readonly baseUrl = 'http://localhost:8082/api/v1/tenant-configs';
 
   getConfig(): Observable<TenantConfig> {
     return this.http.get<TenantConfig>(this.baseUrl);

@@ -47,4 +47,9 @@ public class AppointmentController {
             @RequestBody UpdateAppointmentRequest request) {
         return ResponseEntity.ok(appointmentService.update(id, request));
     }
+
+    @GetMapping("/{id}/audit-logs")
+    public ResponseEntity<List<AppointmentResponse.AuditLogDto>> getAuditLogs(@PathVariable UUID id) {
+        return ResponseEntity.ok(appointmentService.getAuditLogs(id));
+    }
 }

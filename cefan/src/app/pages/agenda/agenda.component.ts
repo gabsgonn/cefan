@@ -2,7 +2,21 @@ import { Component, OnInit, signal, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AppointmentService } from '../../core/services/appointment.service';
-import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppointmentRequest } from '../../core/models/appointment.model';
+import {
+  Appointment,
+  AppointmentAuditLog,
+  AppointmentStatus,
+  CreateAppointmentRequest,
+  UpdateAppointmentRequest
+} from '../../core/models/appointment.model';
+
+export interface CalendarDayColumn {
+  date: Date;
+  dateKey: string;
+  dayName: string;
+  dayMonth: string;
+  isToday: boolean;
+}
 
 @Component({
   selector: 'app-agenda',
@@ -14,9 +28,24 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
       <div class="page-header">
         <div>
           <h1 class="page-title">Agenda & Atendimentos</h1>
-          <p class="page-subtitle">Gerencie as sessões de tatuagem integradas com o WhatsApp e Mercado Pago</p>
+          <p class="page-subtitle">Grade visual de horários livres, bloqueados por PIX e sessões confirmadas</p>
         </div>
         <div class="header-actions">
+          <div class="view-switcher">
+            <button
+              class="view-btn"
+              [class.active]="viewMode() === 'CALENDAR'"
+              (click)="viewMode.set('CALENDAR')">
+              Calendário Semanal
+            </button>
+            <button
+              class="view-btn"
+              [class.active]="viewMode() === 'LIST'"
+              (click)="viewMode.set('LIST')">
+              Lista Tabular
+            </button>
+          </div>
+
           <button class="btn btn-secondary" (click)="loadAppointments()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
@@ -145,13 +174,70 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
         </div>
       </div>
 
-      <!-- Loading / Empty / Appointments List -->
+      <!-- Loading -->
       <div *ngIf="loading()" class="state-container">
         <div class="spinner"></div>
         <p>Carregando agendamentos...</p>
       </div>
 
-      <div *ngIf="!loading() && filteredAppointments().length === 0" class="state-container">
+      <!-- VISÃO 1: GRADE VISUAL DE CALENDÁRIO SEMANAL -->
+      <div *ngIf="!loading() && viewMode() === 'CALENDAR'" class="calendar-card">
+        <div class="calendar-toolbar">
+          <div class="week-nav">
+            <button class="btn btn-secondary" (click)="changeWeek(-1)">◀ Semana Anterior</button>
+            <button class="btn btn-secondary" (click)="resetWeekToToday()">Hoje</button>
+            <button class="btn btn-secondary" (click)="changeWeek(1)">Próxima Semana ▶</button>
+          </div>
+          <div class="calendar-legend">
+            <span class="legend-item"><span class="legend-dot free"></span> Livre (Clique para Agendar)</span>
+            <span class="legend-item"><span class="legend-dot pending"></span> Bloqueado / Aguardando PIX</span>
+            <span class="legend-item"><span class="legend-dot confirmed"></span> Confirmado (Sinal Pago)</span>
+          </div>
+        </div>
+
+        <div class="calendar-grid-wrapper">
+          <table class="calendar-grid">
+            <thead>
+              <tr>
+                <th class="hour-col">Horário</th>
+                <th *ngFor="let col of weekColumns()" [class.today-col]="col.isToday">
+                  <div class="col-day-name">{{ col.dayName }}</div>
+                  <div class="col-day-date">{{ col.dayMonth }}</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let hour of studioHours">
+                <td class="hour-cell">{{ hour }}:00</td>
+                <td *ngFor="let col of weekColumns()" class="slot-cell">
+                  <ng-container *ngIf="getSlotAppointment(col.dateKey, hour) as slotApt; else freeSlot">
+                    <div
+                      class="slot-card"
+                      [ngClass]="slotApt.status"
+                      (click)="openEditModal(slotApt)">
+                      <div class="slot-customer">{{ slotApt.customerName }}</div>
+                      <div class="slot-status">
+                        {{ slotApt.isTouchup ? 'Retoque (R$ 0)' : getStatusLabel(slotApt.status) }}
+                      </div>
+                    </div>
+                  </ng-container>
+                  <ng-template #freeSlot>
+                    <button
+                      class="slot-free-btn"
+                      title="Horário livre — clique para agendar"
+                      (click)="openCreateModalForSlot(col.date, hour)">
+                      + Livre
+                    </button>
+                  </ng-template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VISÃO 2: LISTA TABULAR -->
+      <div *ngIf="!loading() && viewMode() === 'LIST' && filteredAppointments().length === 0" class="state-container">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
           <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -162,7 +248,7 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
         <p>Não há sessões com os critérios selecionados.</p>
       </div>
 
-      <div *ngIf="!loading() && filteredAppointments().length > 0" class="appointments-table-container">
+      <div *ngIf="!loading() && viewMode() === 'LIST' && filteredAppointments().length > 0" class="appointments-table-container">
         <table class="appointments-table">
           <thead>
             <tr>
@@ -224,6 +310,13 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
                     title="Reajustar Valor / Sessão"
                     (click)="openEditModal(apt)">
                     Reajustar
+                  </button>
+
+                  <button
+                    class="btn-action btn-edit"
+                    title="Histórico de Auditoria"
+                    (click)="openAuditModal(apt)">
+                    Auditoria
                   </button>
 
                   <button
@@ -352,6 +445,14 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
               <br><strong class="pix-amount">R$ {{ (apt.depositAmount || 0) | number:'1.2-2' }}</strong>
             </p>
 
+            <div *ngIf="apt.mpPixQrCodeBase64" class="qr-code-box" style="text-align: center; margin-bottom: 1rem;">
+              <img
+                [src]="apt.mpPixQrCodeBase64.startsWith('data:') ? apt.mpPixQrCodeBase64 : 'data:image/png;base64,' + apt.mpPixQrCodeBase64"
+                alt="QR Code PIX"
+                style="max-width: 200px; border-radius: 8px; background: #fff; padding: 8px;"
+              />
+            </div>
+
             <div *ngIf="apt.mpPixCopyPaste" class="input-group">
               <label>Código PIX Copia e Cola:</label>
               <textarea rows="3" readonly [value]="apt.mpPixCopyPaste" class="code-area"></textarea>
@@ -372,6 +473,35 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" (click)="showPixModal.set(false)">Fechar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL: Histórico de Auditoria -->
+      <div *ngIf="showAuditModal()" class="modal-backdrop">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Histórico de Auditoria de Valores</h3>
+            <button class="close-btn" (click)="showAuditModal.set(false)">×</button>
+          </div>
+          <div class="modal-body">
+            <div *ngIf="auditLogs().length === 0" class="modal-intro">
+              Nenhum reajuste de valor registrado para este agendamento.
+            </div>
+            <div *ngFor="let log of auditLogs()" class="audit-log-item" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 0.75rem;">
+              <div style="font-size: 0.85rem; font-weight: 700;">
+                De R$ {{ log.oldValue | number:'1.2-2' }} → Para R$ {{ log.newValue | number:'1.2-2' }}
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                Motivo: {{ log.reason }}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
+                Em: {{ formatDate(log.changedAt) }}
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" (click)="showAuditModal.set(false)">Fechar</button>
           </div>
         </div>
       </div>
@@ -800,6 +930,151 @@ import { Appointment, AppointmentStatus, CreateAppointmentRequest, UpdateAppoint
       margin-top: 1rem;
       text-align: center;
     }
+
+    .view-switcher {
+      display: inline-flex;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.2rem;
+    }
+
+    .view-btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      padding: 0.4rem 0.85rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+
+      &.active {
+        background-color: var(--accent-primary);
+        color: #fff;
+      }
+    }
+
+    .calendar-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .calendar-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .week-nav {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .calendar-legend {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      &.free { background-color: var(--border-light); }
+      &.pending { background-color: var(--color-warning); }
+      &.confirmed { background-color: var(--color-success); }
+    }
+
+    .calendar-grid-wrapper {
+      overflow-x: auto;
+    }
+
+    .calendar-grid {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 780px;
+
+      th, td {
+        border: 1px solid var(--border-color);
+        padding: 0.5rem;
+        text-align: center;
+      }
+
+      th {
+        background-color: var(--bg-surface);
+        font-size: 0.78rem;
+      }
+
+      .today-col {
+        background-color: rgba(99, 102, 241, 0.14);
+      }
+
+      .hour-col, .hour-cell {
+        width: 76px;
+        font-weight: 700;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
+        background-color: var(--bg-surface);
+      }
+    }
+
+    .slot-free-btn {
+      width: 100%;
+      padding: 0.45rem;
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      cursor: pointer;
+
+      &:hover {
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+        background-color: rgba(99, 102, 241, 0.08);
+      }
+    }
+
+    .slot-card {
+      padding: 0.4rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.74rem;
+      text-align: left;
+      cursor: pointer;
+
+      &.CONFIRMADO {
+        background-color: var(--color-success-bg);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        color: var(--color-success);
+      }
+
+      &.AGUARDANDO_PAGAMENTO {
+        background-color: var(--color-warning-bg);
+        border: 1px solid rgba(245, 158, 11, 0.4);
+        color: var(--color-warning);
+      }
+    }
+
+    .slot-customer {
+      font-weight: 700;
+      color: var(--text-primary);
+    }
   `]
 })
 export class AgendaComponent implements OnInit {
@@ -810,6 +1085,10 @@ export class AgendaComponent implements OnInit {
   readonly saving = signal<boolean>(false);
   readonly searchQuery = signal<string>('');
   readonly selectedStatus = signal<string>('ALL');
+  readonly viewMode = signal<'CALENDAR' | 'LIST'>('LIST');
+  readonly weekOffset = signal<number>(0);
+
+  readonly studioHours: number[] = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
   readonly feedbackMessage = signal<string | null>(null);
   readonly feedbackType = signal<'success' | 'error'>('success');
@@ -818,7 +1097,35 @@ export class AgendaComponent implements OnInit {
   readonly showEditModal = signal<boolean>(false);
   readonly showCreateModal = signal<boolean>(false);
   readonly showPixModal = signal<boolean>(false);
+  readonly showAuditModal = signal<boolean>(false);
   readonly selectedAppointment = signal<Appointment | null>(null);
+  readonly auditLogs = signal<AppointmentAuditLog[]>([]);
+
+  readonly weekColumns = computed<CalendarDayColumn[]>(() => {
+    const offset = this.weekOffset();
+    const base = new Date();
+    const dayOfWeek = base.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(base);
+    monday.setDate(base.getDate() + diffToMonday + offset * 7);
+    monday.setHours(0, 0, 0, 0);
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const dayNames = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+    return dayNames.map((name, idx) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + idx);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return {
+        date: d,
+        dateKey: key,
+        dayName: name,
+        dayMonth: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        isToday: key === todayKey
+      };
+    });
+  });
 
   editForm = {
     newPrice: 0,
@@ -1005,6 +1312,54 @@ export class AgendaComponent implements OnInit {
   openPixModal(apt: Appointment): void {
     this.selectedAppointment.set(apt);
     this.showPixModal.set(true);
+  }
+
+  openAuditModal(apt: Appointment): void {
+    this.selectedAppointment.set(apt);
+    this.auditLogs.set([]);
+    this.showAuditModal.set(true);
+    this.appointmentService.getAuditLogs(apt.id).subscribe({
+      next: (logs) => this.auditLogs.set(logs || []),
+      error: () => {}
+    });
+  }
+
+  changeWeek(delta: number): void {
+    this.weekOffset.set(this.weekOffset() + delta);
+  }
+
+  resetWeekToToday(): void {
+    this.weekOffset.set(0);
+  }
+
+  getSlotAppointment(dateKey: string, hour: number): Appointment | undefined {
+    return this.filteredAppointments().find(a => {
+      if (a.status === 'CANCELADO' || a.status === 'EXPIRADO') return false;
+      const start = new Date(a.scheduledStart);
+      const end = a.scheduledEnd ? new Date(a.scheduledEnd) : new Date(start.getTime() + 60 * 60 * 1000);
+      const aptKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      return aptKey === dateKey && hour >= start.getHours() && hour < Math.max(start.getHours() + 1, end.getHours());
+    });
+  }
+
+  openCreateModalForSlot(date: Date, hour: number): void {
+    const start = new Date(date);
+    start.setHours(hour, 0, 0, 0);
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    const pad = (n: number) => (n < 10 ? '0' + n : n);
+    const formatLocal = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    this.createForm = {
+      customerName: '',
+      customerPhone: '5511',
+      scheduledStart: formatLocal(start),
+      scheduledEnd: formatLocal(end),
+      isTouchup: false,
+      totalPrice: 350,
+      depositAmount: 105
+    };
+    this.showCreateModal.set(true);
   }
 
   copyPixCode(code?: string): void {

@@ -34,7 +34,7 @@ describe('TenantConfigService', () => {
       expect(config.defaultHourlyRate).toBe(150.00);
     });
 
-    const req = httpMock.expectOne('http://localhost:8080/api/v1/tenant-configs');
+    const req = httpMock.expectOne('http://localhost:8082/api/v1/tenant-configs');
     expect(req.request.method).toBe('GET');
     req.flush(mockConfig);
     httpMock.verify();
@@ -53,7 +53,7 @@ describe('TenantConfigService', () => {
       expect(res.defaultHourlyRate).toBe(180.00);
     });
 
-    const req = httpMock.expectOne('http://localhost:8080/api/v1/tenant-configs');
+    const req = httpMock.expectOne('http://localhost:8082/api/v1/tenant-configs');
     expect(req.request.method).toBe('PUT');
     expect(req.request.body.studioName).toBe('Vício Tattoo Pro');
     req.flush(updatedConfig);

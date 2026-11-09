@@ -29,11 +29,25 @@ public class AppointmentResponse {
     private BigDecimal depositAmount;
     private String mpPaymentId;
     private String mpPixCopyPaste;
+    private String mpPixQrCodeBase64;
     private String mpPaymentLink;
     private OffsetDateTime expiresAt;
     private Boolean reminder24hSent;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AuditLogDto {
+        private UUID id;
+        private UUID appointmentId;
+        private BigDecimal oldValue;
+        private BigDecimal newValue;
+        private String reason;
+        private OffsetDateTime changedAt;
+    }
 
     public static AppointmentResponse fromEntity(Appointment appointment) {
         return AppointmentResponse.builder()
@@ -49,6 +63,7 @@ public class AppointmentResponse {
                 .depositAmount(appointment.getDepositAmount())
                 .mpPaymentId(appointment.getMpPaymentId())
                 .mpPixCopyPaste(appointment.getMpPixCopyPaste())
+                .mpPixQrCodeBase64(appointment.getMpPixQrCodeBase64())
                 .mpPaymentLink(appointment.getMpPaymentLink())
                 .expiresAt(appointment.getExpiresAt())
                 .reminder24hSent(appointment.getReminder24hSent())
