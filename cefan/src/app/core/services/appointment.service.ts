@@ -21,9 +21,12 @@ const AUTH_STORAGE_KEY = 'cefan_auth_user';
 })
 export class AppointmentService {
   private readonly http = inject(HttpClient);
-  private readonly host =
-    typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : 'localhost';
-  private readonly apiRoot = `http://${this.host}:8082/api/v1`;
+  private readonly isBrowser = typeof window !== 'undefined' && !!window.location;
+  // Se estiver acessando via porta 4200 (Nginx), usa o proxy /api/v1 direto para não sofrer com CORS/Firewall
+  private readonly apiRoot =
+    this.isBrowser && window.location.port === '4200'
+      ? '/api/v1'
+      : (this.isBrowser && window.location.hostname ? `http://${window.location.hostname}:8082/api/v1` : 'http://localhost:8082/api/v1');
   private readonly baseUrl = `${this.apiRoot}/appointments`;
 
   readonly currentUser = signal<AuthUser | null>(this.loadStoredUser());

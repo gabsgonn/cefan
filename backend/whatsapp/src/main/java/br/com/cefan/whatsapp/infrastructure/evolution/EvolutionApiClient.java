@@ -20,7 +20,7 @@ public class EvolutionApiClient {
     private final String defaultInstance;
 
     public EvolutionApiClient(
-            @Value("${evolution.api.url:http://localhost:8080}") String apiUrl,
+            @Value("${evolution.api.url:http://localhost:8081}") String apiUrl,
             @Value("${evolution.api.key}") String apiKey,
             @Value("${evolution.api.instance-name:cefan-studio}") String defaultInstance) {
         this.apiKey = apiKey;

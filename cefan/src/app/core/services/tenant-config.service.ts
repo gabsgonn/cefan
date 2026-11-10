@@ -8,9 +8,11 @@ import { TenantConfig } from '../models/tenant-config.model';
 })
 export class TenantConfigService {
   private readonly http = inject(HttpClient);
-  private readonly host =
-    typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : 'localhost';
-  private readonly baseUrl = `http://${this.host}:8082/api/v1/tenant-configs`;
+  private readonly isBrowser = typeof window !== 'undefined' && !!window.location;
+  private readonly baseUrl =
+    this.isBrowser && window.location.port === '4200'
+      ? '/api/v1/tenant-configs'
+      : (this.isBrowser && window.location.hostname ? `http://${window.location.hostname}:8082/api/v1/tenant-configs` : 'http://localhost:8082/api/v1/tenant-configs');
 
   getConfig(): Observable<TenantConfig> {
     return this.http.get<TenantConfig>(this.baseUrl);

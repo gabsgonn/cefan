@@ -6,7 +6,7 @@ services:
     container_name: evolution-api
     restart: always
     ports:
-      - "8080:8080"
+      - "8081:8081"
     networks:
       - evolution-net
     env_file:
@@ -24,8 +24,8 @@ services:
     networks:
       - evolution-net
     environment:
-      - VITE_EVOLUTION_API_URL=http://localhost:8080
-      - BACKEND_URL=http://localhost:8080
+      - VITE_EVOLUTION_API_URL=http://localhost:8081
+      - BACKEND_URL=http://localhost:8081
     volumes:
       - ./nginx-manager.conf:/etc/nginx/conf.d/nginx.conf:ro
     depends_on:
