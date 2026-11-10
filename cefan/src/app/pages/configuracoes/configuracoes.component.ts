@@ -397,6 +397,28 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
       font-size: 1.2rem;
       cursor: pointer;
     }
+
+    @media (max-width: 640px) {
+      .page-container {
+        padding: 1.25rem 1rem;
+      }
+
+      .page-title {
+        font-size: 1.4rem;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .toggle-container {
+        padding: 1rem;
+      }
+
+      .card-footer .btn {
+        width: 100%;
+      }
+    }
   `]
 })
 export class ConfiguracoesComponent implements OnInit {

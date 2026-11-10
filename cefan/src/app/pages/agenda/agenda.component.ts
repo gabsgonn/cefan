@@ -1075,6 +1075,60 @@ export interface CalendarDayColumn {
       font-weight: 700;
       color: var(--text-primary);
     }
+
+    .hour-col, .hour-cell {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+    }
+
+    @media (max-width: 768px) {
+      .page-container {
+        padding: 1.25rem 1rem;
+      }
+
+      .page-title {
+        font-size: 1.4rem;
+      }
+
+      .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+      }
+
+      .view-switcher {
+        width: 100%;
+        display: flex;
+      }
+
+      .view-btn {
+        flex: 1;
+      }
+
+      .search-box {
+        max-width: 100%;
+        width: 100%;
+      }
+
+      .week-nav {
+        width: 100%;
+        flex-wrap: wrap;
+        .btn {
+          flex: 1 1 auto;
+          padding: 0.5rem 0.65rem;
+          font-size: 0.78rem;
+        }
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .action-buttons {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+    }
   `]
 })
 export class AgendaComponent implements OnInit {

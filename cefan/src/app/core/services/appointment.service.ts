@@ -21,8 +21,10 @@ const AUTH_STORAGE_KEY = 'cefan_auth_user';
 })
 export class AppointmentService {
   private readonly http = inject(HttpClient);
-  private readonly apiRoot = 'http://localhost:8082/api/v1';
-  private readonly baseUrl = 'http://localhost:8082/api/v1/appointments';
+  private readonly host =
+    typeof window !== 'undefined' && window.location?.hostname ? window.location.hostname : 'localhost';
+  private readonly apiRoot = `http://${this.host}:8082/api/v1`;
+  private readonly baseUrl = `${this.apiRoot}/appointments`;
 
   readonly currentUser = signal<AuthUser | null>(this.loadStoredUser());
 

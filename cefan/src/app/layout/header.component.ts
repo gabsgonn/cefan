@@ -108,16 +108,18 @@ import { NotificationEvent } from '../core/models/appointment.model';
       max-width: 1280px;
       margin: 0 auto;
       padding: 0 1.5rem;
-      height: 70px;
+      min-height: 70px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 0.75rem;
     }
 
     .brand {
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      flex-shrink: 0;
     }
 
     .logo-icon {
@@ -253,7 +255,7 @@ import { NotificationEvent } from '../core/models/appointment.model';
       position: absolute;
       right: 0;
       top: 46px;
-      width: 320px;
+      width: min(320px, calc(100vw - 2rem));
       background-color: var(--bg-surface);
       border: 1px solid var(--border-light);
       border-radius: var(--radius-lg);
@@ -329,6 +331,45 @@ import { NotificationEvent } from '../core/models/appointment.model';
       0% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
       100% { opacity: 1; transform: scale(1); }
+    }
+
+    @media (max-width: 920px) {
+      .header-container {
+        flex-wrap: wrap;
+        padding: 0.65rem 1rem;
+      }
+
+      .nav-links {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+        padding-top: 0.45rem;
+        border-top: 1px solid var(--border-color);
+        justify-content: flex-start;
+        scrollbar-width: none;
+      }
+
+      .nav-item {
+        white-space: nowrap;
+        flex: 1 0 auto;
+        justify-content: center;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .status-label {
+        display: none;
+      }
+
+      .system-status {
+        padding: 0.4rem;
+      }
+
+      .brand-title {
+        font-size: 1rem;
+      }
     }
   `]
 })

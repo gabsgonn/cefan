@@ -71,14 +71,55 @@ services:
     ports:
       - "8081:80"
     environment:
-      - VITE_EVOLUTION_API_URL=http://localhost:8080
-      - BACKEND_URL=http://localhost:8080
+      - VITE_EVOLUTION_API_URL=http://${VPS_IP:-localhost}:8080
+      - BACKEND_URL=http://${VPS_IP:-localhost}:8080
     volumes:
       - ./nginx-manager.conf:/etc/nginx/conf.d/nginx.conf:ro
     networks:
       - evolution-net
     depends_on:
       - evolution-api
+
+  cefan-backend:
+    build:
+      context: ./backend/whatsapp
+      dockerfile: Dockerfile
+    container_name: cefan_backend
+    restart: always
+    ports:
+      - "8082:8082"
+    environment:
+      - CEFAN_SERVER_PORT=8082
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/cefan
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-PASSWORD}
+      - EVOLUTION_API_URL=http://evolution-api:8080
+      - EVOLUTION_API_KEY=${AUTHENTICATION_API_KEY}
+      - EVOLUTION_API_INSTANCE_NAME=${EVOLUTION_API_INSTANCE_NAME:-cefan-studio}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_API_MODEL=${GEMINI_API_MODEL:-gemini-1.5-flash}
+      - MERCADOPAGO_ACCESS_TOKEN=${MERCADOPAGO_ACCESS_TOKEN:-}
+      - MERCADOPAGO_NOTIFICATION_URL=${MERCADOPAGO_NOTIFICATION_URL:-}
+      - CEFAN_ADMIN_EMAIL=${CEFAN_ADMIN_EMAIL:-admin@viciotattoo.com}
+      - CEFAN_ADMIN_PASSWORD=${CEFAN_ADMIN_PASSWORD:-cefan123}
+    networks:
+      - evolution-net
+    depends_on:
+      - postgres
+      - evolution-api
+
+  cefan-frontend:
+    build:
+      context: ./cefan
+      dockerfile: Dockerfile
+    container_name: cefan_frontend
+    restart: always
+    ports:
+      - "4200:80"
+    networks:
+      - evolution-net
+    depends_on:
+      - cefan-backend
 
 volumes:
   postgres_data:
@@ -95,4 +136,4 @@ volumes:
 networks:
   evolution-net:
     name: evolution-net
-    external: true
+    driver: bridge

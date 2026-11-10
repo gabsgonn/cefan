@@ -329,6 +329,53 @@ import { ConversationSession, ConversationState } from '../../core/models/appoin
         font-family: inherit;
       }
     }
+
+    @media (max-width: 920px) {
+      .page-container {
+        padding: 1.25rem 1rem;
+      }
+
+      .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+
+      .chat-workspace {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
+
+      .sessions-sidebar {
+        max-height: 280px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .conv-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 1rem;
+      }
+
+      .conv-actions, .conv-actions .btn {
+        width: 100%;
+      }
+
+      .conv-body {
+        padding: 1rem;
+      }
+
+      .conv-composer {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 1rem;
+
+        .btn {
+          width: 100%;
+        }
+      }
+    }
   `]
 })
 export class AtendimentosComponent implements OnInit {
