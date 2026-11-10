@@ -22,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -123,5 +124,86 @@ class OrcamentoStateHandlerTest {
         String message = messageCaptor.getValue();
         assertTrue(message.contains("foto de referência"));
         verifyNoInteractions(geminiVisionClient);
+    }
+
+    @Test
+    void shouldTransitionToHumanHandoffWhenUserSends3() {
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        content.setConversation("3");
+        data.setMessage(content);
+        webhook.setData(data);
+
+        handler.handle(customer, session, webhook, "3");
+
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        assertTrue(messageCaptor.getValue().contains("tatuadores"));
+    }
+
+    @Test
+    void shouldDownloadMediaWhenBase64IsNotDirectlyInWebhook() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("150.00"))
+                .fixedSetupCost(new BigDecimal("50.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        when(evolutionApiClient.getBase64FromMediaMessage(eq("cefan-studio"), eq("MSG123"), eq("5511988888888@s.whatsapp.net"), eq(false)))
+                .thenReturn(java.util.Optional.of("DOWNLOADED_BASE64"));
+
+        TattooAnalysisResult analysis = TattooAnalysisResult.builder()
+                .style("Fineline")
+                .complexityLevel("BAIXA")
+                .complexityMultiplier(1.1)
+                .estimatedHours(1.5)
+                .suggestedBodyLocation("Pulso")
+                .technicalNotes("Traço fino e delicado.")
+                .build();
+        when(geminiVisionClient.analyzeTattoo(eq("DOWNLOADED_BASE64"), any(), any())).thenReturn(analysis);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageKey key = new EvolutionWebhookRequest.MessageKey();
+        key.setId("MSG123");
+        key.setRemoteJid("5511988888888@s.whatsapp.net");
+        key.setFromMe(false);
+        data.setKey(key);
+
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        EvolutionWebhookRequest.ImageMessage img = new EvolutionWebhookRequest.ImageMessage();
+        img.setMimetype("image/jpeg");
+        content.setImageMessage(img);
+        data.setMessage(content);
+        webhook.setData(data);
+
+        handler.handle(customer, session, webhook, "Quero fazer essa no pulso");
+
+        verify(evolutionApiClient).getBase64FromMediaMessage("cefan-studio", "MSG123", "5511988888888@s.whatsapp.net", false);
+        verify(geminiVisionClient).analyzeTattoo(eq("DOWNLOADED_BASE64"), eq("image/jpeg"), eq("Quero fazer essa no pulso"));
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), contains("Fineline"));
+    }
+
+    @Test
+    void shouldTransitionToSchedulingWhenUserSends2() {
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        content.setConversation("2");
+        data.setMessage(content);
+        webhook.setData(data);
+
+        handler.handle(customer, session, webhook, "2");
+
+        assertEquals(ConversationState.AGENDAMENTO_SELECAO_DATA, session.getCurrentState());
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        assertTrue(messageCaptor.getValue().contains("agendamento"));
     }
 }

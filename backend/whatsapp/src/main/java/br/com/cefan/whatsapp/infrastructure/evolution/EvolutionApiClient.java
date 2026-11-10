@@ -57,15 +57,30 @@ public class EvolutionApiClient {
     }
 
     public Optional<String> getBase64FromMediaMessage(String instance, String messageId) {
+        return getBase64FromMediaMessage(instance, messageId, null, null);
+    }
+
+    public Optional<String> getBase64FromMediaMessage(String instance, String messageId, String remoteJid, Boolean fromMe) {
         String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
         if (messageId == null || messageId.isBlank()) {
             return Optional.empty();
         }
         try {
+            java.util.Map<String, Object> keyMap = new java.util.HashMap<>();
+            keyMap.put("id", messageId);
+            if (remoteJid != null && !remoteJid.isBlank()) {
+                keyMap.put("remoteJid", remoteJid);
+            }
+            if (fromMe != null) {
+                keyMap.put("fromMe", fromMe);
+            }
+
             Map<String, Object> body = Map.of(
-                    "message", Map.of("key", Map.of("id", messageId)),
+                    "message", Map.of("key", keyMap),
                     "convertToMp4", false
             );
+
+            log.info("Buscando base64 da mídia da mensagem [{}] na instância [{}]", messageId, targetInstance);
 
             JsonNode response = restClient.post()
                     .uri("/chat/getBase64FromMediaMessage/{instance}", targetInstance)
@@ -74,10 +89,26 @@ public class EvolutionApiClient {
                     .retrieve()
                     .body(JsonNode.class);
 
-            if (response != null && response.has("base64")) {
-                String base64 = response.get("base64").asText();
-                if (base64 != null && !base64.isBlank()) {
-                    return Optional.of(base64);
+            if (response != null) {
+                if (response.has("base64")) {
+                    JsonNode b64Node = response.get("base64");
+                    if (b64Node.isTextual()) {
+                        String base64 = b64Node.asText();
+                        if (base64 != null && !base64.isBlank()) {
+                            return Optional.of(base64);
+                        }
+                    } else if (b64Node.isObject() && b64Node.has("base64")) {
+                        String base64 = b64Node.get("base64").asText();
+                        if (base64 != null && !base64.isBlank()) {
+                            return Optional.of(base64);
+                        }
+                    }
+                }
+                if (response.has("data") && response.get("data").isTextual()) {
+                    String base64 = response.get("data").asText();
+                    if (base64 != null && !base64.isBlank()) {
+                        return Optional.of(base64);
+                    }
                 }
             }
         } catch (Exception e) {

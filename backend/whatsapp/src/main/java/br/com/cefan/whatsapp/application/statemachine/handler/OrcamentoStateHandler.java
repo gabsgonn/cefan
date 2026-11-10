@@ -47,7 +47,11 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             String base64Image = webhook.extractBase64();
             if (base64Image == null || base64Image.isBlank()) {
                 Optional<String> downloaded = evolutionApiClient.getBase64FromMediaMessage(
-                        webhook.getInstance(), webhook.extractMessageId());
+                        webhook.getInstance(),
+                        webhook.extractMessageId(),
+                        webhook.extractRemoteJid(),
+                        webhook.isFromMe()
+                );
                 base64Image = downloaded.orElse(null);
             }
 
@@ -105,6 +109,34 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
         } else {
             // Cliente enviou apenas texto sem imagem
+            String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
+
+            if (input.equals("3") || input.contains("tatuador") || input.contains("humano") || input.contains("falar")) {
+                session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+                String reply = String.format(
+                        "Entendido, %s! 👨‍🎨\n\n" +
+                        "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.\n\n" +
+                        "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                        customer.getName()
+                );
+                evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+                return;
+            }
+
+            if (input.equals("2") || input.contains("agendar") || input.contains("agendamento")) {
+                session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
+                String reply = String.format(
+                        "Ótimo, %s! 🗓️ Vamos iniciar seu agendamento com base no seu orçamento.\n\n" +
+                        "Por favor, me informe:\n" +
+                        "1. O tatuador de sua preferência (ou digite *qualquer* se não tiver preferência)\n" +
+                        "2. A data e período desejados (Ex: próxima sexta-feira à tarde, ou dia 20/10)\n\n" +
+                        "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
+                        customer.getName()
+                );
+                evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+                return;
+            }
+
             log.info("Descrição em texto recebida no estado de orçamento do cliente [{}]", customer.getPhone());
             String reply = String.format(
                     "Recebemos sua descrição: \"%s\" 📝\n\n" +

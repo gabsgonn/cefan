@@ -5,6 +5,7 @@ import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookReques
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.*;
 
 @Slf4j
@@ -17,12 +18,20 @@ public class EvolutionWebhookController {
 
     @PostMapping
     public ResponseEntity<Void> receiveWebhook(@RequestBody EvolutionWebhookRequest request) {
-        log.info("Webhook recebido: evento=[{}], instancia=[{}]", request.getEvent(), request.getInstance());
+        if (request != null) {
+            log.info("Webhook recebido: evento=[{}], instancia=[{}]", request.getEvent(), request.getInstance());
 
-        if ("messages.upsert".equalsIgnoreCase(request.getEvent()) || "MESSAGES_UPSERT".equalsIgnoreCase(request.getEvent())) {
-            messageHandlingService.handleIncomingMessage(request);
+            if ("messages.upsert".equalsIgnoreCase(request.getEvent()) || "MESSAGES_UPSERT".equalsIgnoreCase(request.getEvent())) {
+                messageHandlingService.handleIncomingMessage(request);
+            }
         }
 
+        return ResponseEntity.ok().build();
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Void> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Payload de webhook não legível da Evolution API: {}", ex.getMessage());
         return ResponseEntity.ok().build();
     }
 
