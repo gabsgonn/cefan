@@ -9,6 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -17,11 +20,26 @@ public class MessageHandlingService {
     private final CustomerRepository customerRepository;
     private final ConversationStateMachineService stateMachineService;
 
+    // Cache LRU simples para deduplicar webhooks repetidos do WhatsApp/Baileys
+    private final Map<String, Long> processedMessagesCache = new ConcurrentHashMap<>();
+
     @Transactional
     public void handleIncomingMessage(EvolutionWebhookRequest webhook) {
         if (webhook.isFromMe()) {
             log.debug("Ignorando mensagem enviada por nós mesmos.");
             return;
+        }
+
+        String messageId = webhook.extractMessageId();
+        if (messageId != null && !messageId.isBlank()) {
+            long now = System.currentTimeMillis();
+            // Limpa mensagens com mais de 2 minutos
+            processedMessagesCache.entrySet().removeIf(entry -> now - entry.getValue() > 120_000);
+
+            if (processedMessagesCache.putIfAbsent(messageId, now) != null) {
+                log.info("Mensagem duplicada [{}] ignorada para evitar spam.", messageId);
+                return;
+            }
         }
 
         String phone = webhook.extractSenderPhone();
