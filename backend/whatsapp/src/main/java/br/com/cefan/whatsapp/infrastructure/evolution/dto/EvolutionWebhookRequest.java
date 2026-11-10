@@ -20,7 +20,7 @@ public class EvolutionWebhookRequest {
         private MessageContent message;
         private String messageType;
         private Long messageTimestamp;
-        private String base64;
+        private Object base64; // Pode vir como String direta ou como objeto com metadados
     }
 
     @Data
@@ -96,7 +96,14 @@ public class EvolutionWebhookRequest {
             return data.message.imageMessage.base64;
         }
         if (data != null && data.base64 != null) {
-            return data.base64;
+            if (data.base64 instanceof String str) {
+                return str;
+            }
+            if (data.base64 instanceof java.util.Map<?, ?> map && map.containsKey("base64")) {
+                Object b64Obj = map.get("base64");
+                return b64Obj != null ? b64Obj.toString() : null;
+            }
+            return data.base64.toString();
         }
         return null;
     }
