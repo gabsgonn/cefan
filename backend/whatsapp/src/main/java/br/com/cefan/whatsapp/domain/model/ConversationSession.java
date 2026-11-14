@@ -36,6 +36,13 @@ public class ConversationSession {
     @Column(name = "context_data", columnDefinition = "jsonb")
     private String contextData;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_user_id")
+    private User assignedUser;
+
+    @Column(name = "assigned_artist_name", length = 100)
+    private String assignedArtistName;
+
     @Column(name = "last_interaction_at", nullable = false)
     @Builder.Default
     private OffsetDateTime lastInteractionAt = OffsetDateTime.now();

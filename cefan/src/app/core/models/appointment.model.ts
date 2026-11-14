@@ -43,9 +43,25 @@ export interface ConversationSession {
   customerPhone: string;
   currentState: ConversationState;
   contextData?: string;
+  assignedUserId?: string;
+  assignedArtistName?: string;
   lastInteractionAt: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  customerId: string;
+  senderType: 'CUSTOMER' | 'BOT' | 'AGENT';
+  senderId?: string;
+  senderName: string;
+  content: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  isFromMe: boolean;
+  createdAt: string;
 }
 
 export interface NotificationPreferences {
@@ -65,6 +81,7 @@ export interface NotificationEvent {
 }
 
 export interface AuthUser {
+  id?: string;
   token: string;
   name: string;
   email: string;
