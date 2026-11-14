@@ -1,11 +1,14 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
+import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
+import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest;
 import br.com.cefan.whatsapp.infrastructure.mercadopago.MercadoPagoPaymentClient;
@@ -38,6 +41,15 @@ class AgendamentoStateHandlerTest {
     @Mock
     private MercadoPagoPaymentClient paymentClient;
 
+    @Mock
+    private ChatService chatService;
+
+    @Mock
+    private TenantConfigRepository tenantConfigRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private AgendamentoStateHandler handler;
@@ -46,7 +58,15 @@ class AgendamentoStateHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new AgendamentoStateHandler(evolutionApiClient, appointmentRepository, paymentClient, objectMapper);
+        handler = new AgendamentoStateHandler(
+                evolutionApiClient,
+                appointmentRepository,
+                paymentClient,
+                objectMapper,
+                chatService,
+                tenantConfigRepository,
+                userRepository
+        );
 
         customer = Customer.builder()
                 .id(UUID.randomUUID())

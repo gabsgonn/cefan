@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
@@ -40,6 +41,9 @@ class OrcamentoStateHandlerTest {
     @Mock
     private TenantConfigRepository tenantConfigRepository;
 
+    @Mock
+    private ChatService chatService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private OrcamentoStateHandler handler;
@@ -48,7 +52,7 @@ class OrcamentoStateHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new OrcamentoStateHandler(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper);
+        handler = new OrcamentoStateHandler(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService);
 
         customer = Customer.builder()
                 .id(UUID.randomUUID())

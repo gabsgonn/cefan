@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.handler.MenuStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
@@ -21,14 +22,17 @@ public class ConversationStateMachineService {
 
     private final ConversationSessionRepository sessionRepository;
     private final MenuStateHandler menuStateHandler;
+    private final ChatService chatService;
     private final Map<ConversationState, ConversationStateHandler> handlers = new EnumMap<>(ConversationState.class);
 
     public ConversationStateMachineService(
             ConversationSessionRepository sessionRepository,
             MenuStateHandler menuStateHandler,
+            ChatService chatService,
             List<ConversationStateHandler> handlerList) {
         this.sessionRepository = sessionRepository;
         this.menuStateHandler = menuStateHandler;
+        this.chatService = chatService;
         for (ConversationStateHandler handler : handlerList) {
             handlers.put(handler.getSupportedState(), handler);
         }
@@ -54,7 +58,16 @@ public class ConversationStateMachineService {
                             .build());
                 });
 
-        // 1. Verificação de expiração por inatividade (24 horas)
+        // 1. Registra mensagem recebida do cliente no histórico de chat
+        chatService.recordIncomingMessage(
+                session,
+                customer,
+                messageText != null ? messageText : "[Imagem recebida]",
+                hasImage ? "[Mídia/Imagem]" : null,
+                webhook.extractImageMimeType()
+        );
+
+        // 2. Verificação de expiração por inatividade (24 horas)
         if (session.getLastInteractionAt() != null &&
                 session.getLastInteractionAt().isBefore(OffsetDateTime.now().minusHours(24))) {
             log.info("Sessão inativa há mais de 24h para cliente [{}]. Resetando para MENU.", customer.getPhone());
@@ -63,24 +76,25 @@ public class ConversationStateMachineService {
 
         String trimmed = (messageText != null) ? messageText.trim() : "";
 
-        // 2. Comandos globais de reset/menu ("0", "menu", "voltar", "início", "inicio")
+        // 3. Comandos globais de reset/menu ("0", "menu", "voltar", "início", "inicio")
         if (isResetCommand(trimmed)) {
             log.info("Comando de reset global recebido de [{}] ('{}'). Resetando para MENU.", customer.getPhone(), trimmed);
             session.setCurrentState(ConversationState.MENU);
+            session.setContextData(null);
             session.setLastInteractionAt(OffsetDateTime.now());
             sessionRepository.save(session);
-            menuStateHandler.sendWelcomeMenu(customer, webhook.getInstance());
+            menuStateHandler.sendWelcomeMenu(customer, session, webhook.getInstance());
             return;
         }
 
-        // 3. Execução do handler do estado atual
+        // 4. Execução do handler do estado atual
         ConversationStateHandler handler = handlers.get(session.getCurrentState());
         if (handler != null) {
             handler.handle(customer, session, webhook, messageText);
         } else {
             log.warn("Nenhum handler encontrado para o estado [{}]. Resetando para MENU.", session.getCurrentState());
             session.setCurrentState(ConversationState.MENU);
-            menuStateHandler.sendWelcomeMenu(customer, webhook.getInstance());
+            menuStateHandler.sendWelcomeMenu(customer, session, webhook.getInstance());
         }
 
         session.setLastInteractionAt(OffsetDateTime.now());

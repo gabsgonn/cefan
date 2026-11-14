@@ -1,9 +1,12 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
+import br.com.cefan.whatsapp.domain.model.TenantConfig;
+import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +19,8 @@ import org.springframework.stereotype.Component;
 public class MenuStateHandler implements ConversationStateHandler {
 
     private final EvolutionApiClient evolutionApiClient;
+    private final ChatService chatService;
+    private final TenantConfigRepository tenantConfigRepository;
 
     @Override
     public ConversationState getSupportedState() {
@@ -25,45 +30,51 @@ public class MenuStateHandler implements ConversationStateHandler {
     @Override
     public void handle(Customer customer, ConversationSession session, EvolutionWebhookRequest webhook, String messageText) {
         String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
+        TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
 
         if (input.equals("1") || input.contains("orçamento") || input.contains("orcamento")) {
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
-            String reply = String.format(
-                    "Perfeito, %s! 🎨\n\n" +
-                    "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga:\n" +
-                    "• O local do corpo onde deseja tatuar\n" +
-                    "• O tamanho aproximado em centímetros (ex: 10cm x 5cm)\n\n" +
-                    "💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",
-                    customer.getName()
-            );
+            String customTemplate = (config != null && config.getOrcamentoIntroMessage() != null)
+                    ? config.getOrcamentoIntroMessage()
+                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga:\n• O local do corpo onde deseja tatuar\n• O tamanho aproximado em centímetros (ex: 10cm x 5cm)";
+
+            String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",
+                    customer.getName(), customTemplate);
+
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
         } else if (input.equals("2") || input.contains("agendar") || input.contains("agendamento")) {
             session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
-            String reply = String.format(
-                    "Ótimo, %s! 🗓️ Vamos iniciar seu agendamento.\n\n" +
-                    "Por favor, me informe:\n" +
-                    "1. O tatuador de sua preferência (ou digite *qualquer* se não tiver preferência)\n" +
-                    "2. A data e período desejados (Ex: próxima sexta-feira à tarde, ou dia 20/10)\n\n" +
-                    "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
-                    customer.getName()
-            );
+            String customTemplate = (config != null && config.getAgendamentoIntroMessage() != null)
+                    ? config.getAgendamentoIntroMessage()
+                    : "Vamos iniciar seu agendamento.\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)";
+
+            String reply = String.format("Ótimo, %s! 🗓️\n\n%s\n\n💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
+                    customer.getName(), customTemplate);
+
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
         } else if (input.equals("3") || input.contains("humano") || input.contains("tatuador") || input.contains("falar")) {
             session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
-            String reply = String.format(
-                    "Entendido, %s! 👨‍🎨\n\n" +
-                    "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.\n\n" +
-                    "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                    customer.getName()
-            );
+            String customTemplate = (config != null && config.getHumanTransferMessage() != null)
+                    ? config.getHumanTransferMessage()
+                    : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!";
+
+            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    customer.getName(), customTemplate);
+
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
         } else {
-            sendWelcomeMenu(customer, webhook.getInstance());
+            sendWelcomeMenu(customer, session, webhook.getInstance());
         }
     }
 
-    public void sendWelcomeMenu(Customer customer, String instance) {
-        String menu = String.format(
+    public void sendWelcomeMenu(Customer customer, ConversationSession session, String instance) {
+        TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
+        String menu = (config != null && config.getWelcomeMessage() != null)
+                ? config.getWelcomeMessage()
+                : String.format(
                 "Olá, %s! 🎨 Bem-vindo ao *Vício Tattoo*!\n\n" +
                 "Como posso te ajudar hoje?\n\n" +
                 "1️⃣ - *Fazer Orçamento* (com foto de referência)\n" +
@@ -72,6 +83,14 @@ public class MenuStateHandler implements ConversationStateHandler {
                 "👉 _Digite o número da opção desejada._",
                 customer.getName()
         );
+
         evolutionApiClient.sendTextMessage(instance, customer.getPhone(), menu);
+        if (session != null) {
+            chatService.recordBotMessage(session, customer, menu);
+        }
+    }
+
+    public void sendWelcomeMenu(Customer customer, String instance) {
+        sendWelcomeMenu(customer, null, instance);
     }
 }

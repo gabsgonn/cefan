@@ -105,21 +105,43 @@ public class GeminiVisionClient {
 
     private String buildPrompt(String customerNotes) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Você é um mestre tatuador e orçamentista profissional especialista em arte corporal.\n");
-        sb.append("Analise a imagem da tatuagem fornecida como referência ");
+        sb.append("Você é o orçamentista especialista com IA do renomado estúdio 'Vício Tattoo CWB'.\n");
+        sb.append("A equipe do estúdio é composta por 11 profissionais especialistas:\n");
+        sb.append("1. Carlos Silveira (Especialista em Realismo Preto e Cinza, Retratos)\n");
+        sb.append("2. Mariana Rocha (Especialista em Fineline / Traço Fino e Florais Delicados)\n");
+        sb.append("3. Lucas Blade (Especialista em Blackwork Pesado, Geometria e Tribal)\n");
+        sb.append("4. Beatriz Lima (Especialista em Aquarela e Tatuagens Coloridas)\n");
+        sb.append("5. Rodrigo Old School (Especialista em Tradicional Americano / Old School e Bold Line)\n");
+        sb.append("6. Felipe Neo (Especialista em Neo Traditional e New School)\n");
+        sb.append("7. Camila Pontilhismo (Especialista em Pontilhismo e Mandalas)\n");
+        sb.append("8. Gabriel Oriental (Especialista em Irezumi e Tatuagem Oriental)\n");
+        sb.append("9. Larissa Piercing (Body Piercer, Perfurações Corporais e Microdermal)\n");
+        sb.append("10. Thiago Dark (Especialista em Dark Art, Gótico e Lettering Sombrio)\n");
+        sb.append("11. Julia Piercer (Body Piercer, Aplicação de Joias em Titânio e Ouro)\n\n");
+
+        sb.append("Analise a imagem da tatuagem ou arte de referência enviada pelo cliente ");
         if (customerNotes != null && !customerNotes.isBlank()) {
-            sb.append("e leve em consideração a observação enviada pelo cliente: \"").append(customerNotes).append("\".\n");
+            sb.append("e considere as informações adicionais do cliente: \"").append(customerNotes).append("\".\n");
         } else {
             sb.append(".\n");
         }
+
+        sb.append("Calcule o tempo de agulha REALISTA com base no tamanho visual e complexidade do traço:\n");
+        sb.append("- Tatuagem Mini/Pequena (até 6cm, traço simples/fineline): 0.5 a 1.2 horas.\n");
+        sb.append("- Tatuagem Média (7 a 14cm, sombreamento moderado): 1.5 a 2.5 horas.\n");
+        sb.append("- Tatuagem Grande/Complexa (15cm+, realismo ou fechamento): 3.0 a 6.0 horas.\n\n");
+
         sb.append("Responda ESTRITAMENTE em formato JSON com as seguintes chaves:\n");
         sb.append("{\n");
-        sb.append("  \"style\": \"Nome do estilo predominante (ex: Fineline / Traço Fino, Blackwork, Realismo Preto e Cinza, Tradicional / Old School, Aquarela, Minimalista, Tribal / Geométrico)\",\n");
+        sb.append("  \"style\": \"Estilo predominante identificado\",\n");
+        sb.append("  \"sizeCategory\": \"MINI (até 5cm), PEQUENA (6-10cm), MEDIA (11-18cm) ou GRANDE (19cm+)\",\n");
+        sb.append("  \"estimatedSizeCm\": \"ex: 5x5 cm, 10x8 cm ou 18x12 cm\",\n");
         sb.append("  \"complexityLevel\": \"BAIXA, MEDIA ou ALTA\",\n");
-        sb.append("  \"complexityMultiplier\": multiplicador decimal entre 1.0 e 2.0 (1.0 a 1.1 para traço simples minimalista; 1.2 a 1.4 para sombreamento moderado/blackwork; 1.5 a 2.0 para realismo detalhado ou artes complexas),\n");
-        sb.append("  \"estimatedHours\": estimativa realista de horas de sessão de agulha (número decimal entre 1.0 e 8.0 horas),\n");
-        sb.append("  \"suggestedBodyLocation\": \"locais do corpo mais recomendados para esse estilo (ex: Antebraço, Panturrilha, Costela)\",\n");
-        sb.append("  \"technicalNotes\": \"breve explicação amigável (2 a 3 frases em português) sobre as características da arte (agulhas sugeridas, sombreamento, proporção) para apresentar ao cliente\",\n");
+        sb.append("  \"complexityMultiplier\": multiplicador decimal (1.0 a 1.1 para traço simples; 1.2 a 1.4 para sombreado/blackwork; 1.5 a 1.8 para realismo detalhado),\n");
+        sb.append("  \"estimatedHours\": número decimal com estimativa realista de horas (ex: 0.8, 1.5, 2.5, 4.0),\n");
+        sb.append("  \"suggestedBodyLocation\": \"locais anatômicos ideais (ex: Antebraço, Pulso, Costela, Panturrilha)\",\n");
+        sb.append("  \"technicalNotes\": \"2 a 3 frases explicativas sobre agulhas recomendadas, sombreamento e cuidados\",\n");
+        sb.append("  \"recommendedArtists\": [\"Nome do tatuador especialista do estúdio mais adequado para esse estilo\"],\n");
         sb.append("  \"primaryColors\": [\"Preto\", \"Cinza\"]\n");
         sb.append("}\n");
         return sb.toString();
@@ -146,13 +168,59 @@ public class GeminiVisionClient {
     }
 
     public TattooAnalysisResult createFallbackResult(String customerNotes) {
+        String lower = (customerNotes != null) ? customerNotes.toLowerCase() : "";
+
+        if (lower.contains("pequena") || lower.contains("mini") || lower.contains("delicada") || lower.contains("fineline") || lower.contains("traço fino") || lower.contains("5cm") || lower.contains("frase")) {
+            return TattooAnalysisResult.builder()
+                    .style("Fineline / Traço Fino")
+                    .sizeCategory("PEQUENA")
+                    .estimatedSizeCm("6x4 cm")
+                    .complexityLevel("BAIXA")
+                    .complexityMultiplier(1.05)
+                    .estimatedHours(1.0)
+                    .suggestedBodyLocation("Antebraço, Pulso ou Tornozelo")
+                    .technicalNotes("Traço fino e delicado com agulha 03RL. Excelente cicatrização e definição para artes minimalistas.")
+                    .recommendedArtists(List.of("Mariana Rocha (Fineline)"))
+                    .primaryColors(new ArrayList<>(List.of("Preto")))
+                    .build();
+        } else if (lower.contains("realismo") || lower.contains("retrato") || lower.contains("leão") || lower.contains("lobo") || lower.contains("braço todo") || lower.contains("fechamento")) {
+            return TattooAnalysisResult.builder()
+                    .style("Realismo Preto e Cinza")
+                    .sizeCategory("MEDIA")
+                    .estimatedSizeCm("15x10 cm")
+                    .complexityLevel("ALTA")
+                    .complexityMultiplier(1.4)
+                    .estimatedHours(3.5)
+                    .suggestedBodyLocation("Antebraço, Bíceps ou Panturrilha")
+                    .technicalNotes("Obra com contraste dramático, degradê suave e texturas com agulhas Magnum. Realismo de alto impacto.")
+                    .recommendedArtists(List.of("Carlos Silveira (Realismo)"))
+                    .primaryColors(new ArrayList<>(List.of("Preto", "Cinza")))
+                    .build();
+        } else if (lower.contains("piercing") || lower.contains("furar") || lower.contains("joia")) {
+            return TattooAnalysisResult.builder()
+                    .style("Body Piercing")
+                    .sizeCategory("MINI")
+                    .estimatedSizeCm("Perfuração padrão")
+                    .complexityLevel("BAIXA")
+                    .complexityMultiplier(1.0)
+                    .estimatedHours(0.5)
+                    .suggestedBodyLocation("Orelha (Hélice/Tragus/Lóbulo) ou Nariz")
+                    .technicalNotes("Procedimento asséptico com cateter descartável e joia de titânio grau implante.")
+                    .recommendedArtists(List.of("Larissa Piercing", "Julia Piercer"))
+                    .primaryColors(new ArrayList<>(List.of("Prata / Titânio")))
+                    .build();
+        }
+
         return TattooAnalysisResult.builder()
                 .style("Arte Personalizada")
+                .sizeCategory("PEQUENA")
+                .estimatedSizeCm("10x7 cm")
                 .complexityLevel("MEDIA")
                 .complexityMultiplier(1.2)
                 .estimatedHours(2.5)
                 .suggestedBodyLocation("Antebraço ou Panturrilha")
                 .technicalNotes("Tatuagem com traços e sombreamento padrão do estúdio. Detalhes finais ajustados com o tatuador na sessão.")
+                .recommendedArtists(List.of("Lucas Blade (Blackwork)", "Mariana Rocha"))
                 .primaryColors(new ArrayList<>(List.of("Preto", "Cinza")))
                 .build();
     }

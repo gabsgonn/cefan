@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.application.statemachine.handler.MenuStateHandler;
 import br.com.cefan.whatsapp.application.statemachine.handler.OrcamentoStateHandler;
@@ -11,6 +12,7 @@ import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
 import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
 import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
+import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.ai.GeminiVisionClient;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.TattooAnalysisResult;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
@@ -54,6 +56,12 @@ class ConversationStateMachineServiceTest {
     @Mock
     private MercadoPagoPaymentClient paymentClient;
 
+    @Mock
+    private ChatService chatService;
+
+    @Mock
+    private UserRepository userRepository;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private ConversationStateMachineService stateMachineService;
@@ -62,11 +70,11 @@ class ConversationStateMachineServiceTest {
 
     @BeforeEach
     void setUp() {
-        menuStateHandler = new MenuStateHandler(evolutionApiClient);
+        menuStateHandler = new MenuStateHandler(evolutionApiClient, chatService, tenantConfigRepository);
         OrcamentoStateHandler orcamentoStateHandler = new OrcamentoStateHandler(
-                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper);
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService);
         AgendamentoStateHandler agendamentoStateHandler = new AgendamentoStateHandler(
-                evolutionApiClient, appointmentRepository, paymentClient, objectMapper);
+                evolutionApiClient, appointmentRepository, paymentClient, objectMapper, chatService, tenantConfigRepository, userRepository);
         TransbordoHumanoStateHandler transbordoHumanoStateHandler = new TransbordoHumanoStateHandler();
 
         List<ConversationStateHandler> handlers = List.of(
@@ -76,7 +84,7 @@ class ConversationStateMachineServiceTest {
                 transbordoHumanoStateHandler
         );
 
-        stateMachineService = new ConversationStateMachineService(sessionRepository, menuStateHandler, handlers);
+        stateMachineService = new ConversationStateMachineService(sessionRepository, menuStateHandler, chatService, handlers);
 
         customer = Customer.builder()
                 .id(UUID.randomUUID())

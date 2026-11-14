@@ -19,6 +19,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
 
     List<Appointment> findByArtistIdAndScheduledStartBetween(UUID artistId, OffsetDateTime start, OffsetDateTime end);
 
+    List<Appointment> findByScheduledStartBetween(OffsetDateTime start, OffsetDateTime end);
+
     Optional<Appointment> findByMpPaymentId(String mpPaymentId);
 
     List<Appointment> findByStatusAndScheduledStartBetweenAndReminder24hSentFalse(

@@ -21,4 +21,9 @@ public class TattooAnalysisResult {
     private String suggestedBodyLocation;
     private String technicalNotes;
     private List<String> primaryColors;
+    private String sizeCategory;
+    private String estimatedSizeCm;
+    private List<String> recommendedArtists;
+    private Double suggestedPriceMin;
+    private Double suggestedPriceMax;
 }

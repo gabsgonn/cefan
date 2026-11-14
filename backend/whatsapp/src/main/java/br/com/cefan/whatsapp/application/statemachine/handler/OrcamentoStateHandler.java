@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
@@ -30,6 +31,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
     private final GeminiVisionClient geminiVisionClient;
     private final TenantConfigRepository tenantConfigRepository;
     private final ObjectMapper objectMapper;
+    private final ChatService chatService;
 
     @Override
     public ConversationState getSupportedState() {
@@ -66,11 +68,15 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
             BigDecimal hourlyRate = tenantConfig.getDefaultHourlyRate();
             BigDecimal setupCost = tenantConfig.getFixedSetupCost();
-            BigDecimal hours = BigDecimal.valueOf(analysis.getEstimatedHours() != null ? analysis.getEstimatedHours() : 2.0);
-            BigDecimal multiplier = BigDecimal.valueOf(analysis.getComplexityMultiplier() != null ? analysis.getComplexityMultiplier() : 1.2);
+            BigDecimal hours = BigDecimal.valueOf(analysis.getEstimatedHours() != null ? analysis.getEstimatedHours() : 1.5);
+            BigDecimal multiplier = BigDecimal.valueOf(analysis.getComplexityMultiplier() != null ? analysis.getComplexityMultiplier() : 1.15);
 
             // Fórmula: Preço = (horas * taxa_hora * multiplicador) + custo_montagem
             BigDecimal basePrice = hours.multiply(hourlyRate).multiply(multiplier).add(setupCost).setScale(2, RoundingMode.HALF_UP);
+            // Piso mínimo seguro para tatuagem pequena (evita valores absurdos ou irreais)
+            if (hours.compareTo(new BigDecimal("1.0")) <= 0 && basePrice.compareTo(new BigDecimal("150.00")) < 0) {
+                basePrice = new BigDecimal("150.00");
+            }
             BigDecimal minPrice = basePrice.multiply(BigDecimal.valueOf(0.90)).setScale(0, RoundingMode.HALF_UP);
             BigDecimal maxPrice = basePrice.multiply(BigDecimal.valueOf(1.15)).setScale(0, RoundingMode.HALF_UP);
 
@@ -80,33 +86,46 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             // 5. Montagem da resposta para o WhatsApp
             String hoursFormatted = (analysis.getEstimatedHours() != null)
                     ? String.format(java.util.Locale.forLanguageTag("pt-BR"), "%.1f", analysis.getEstimatedHours())
-                    : "2,0";
+                    : "1,5";
+
+            String recommended = (analysis.getRecommendedArtists() != null && !analysis.getRecommendedArtists().isEmpty())
+                    ? String.join(", ", analysis.getRecommendedArtists())
+                    : "Carlos Silveira ou Mariana Rocha";
+
+            String sizeInfo = (analysis.getEstimatedSizeCm() != null)
+                    ? analysis.getEstimatedSizeCm() + " (" + (analysis.getSizeCategory() != null ? analysis.getSizeCategory() : "Proporcional") + ")"
+                    : "Tamanho proporcional à referência";
 
             String reply = String.format(
                     "🎨 *Orçamento Estimado com Inteligência Artificial* 🎨\n\n" +
                     "Olá, %s! Analisamos os detalhes da sua arte de referência:\n\n" +
                     "📌 *Estilo:* %s\n" +
+                    "📏 *Tamanho Estimado:* %s\n" +
                     "⏱️ *Tempo Estimado:* ~%sh de agulha\n" +
                     "🔍 *Complexidade:* %s\n" +
-                    "📍 *Local Sugerido:* %s\n\n" +
+                    "📍 *Local Sugerido:* %s\n" +
+                    "👨‍🎨 *Tatuador Especialista:* %s\n\n" +
                     "📝 *Detalhes da Arte:*\n%s\n\n" +
                     "💰 *Faixa de Preço Estimada:*\n*R$ %s a R$ %s*\n" +
-                    "_(Inclui materiais 100%% esterilizados, tintas regulamentadas e biossegurança)_\n\n" +
+                    "_(Inclui materiais 100%% descartáveis, esterilizados e biossegurança)_\n\n" +
                     "━━━━━━━━━━━━━━━━━━━━\n" +
                     "👉 Digite *2* para *Agendar sua Sessão*\n" +
                     "👉 Digite *3* para *Falar com o Tatuador*\n" +
                     "👉 Digite *0* para voltar ao menu inicial",
                     customer.getName(),
                     analysis.getStyle(),
+                    sizeInfo,
                     hoursFormatted,
                     analysis.getComplexityLevel(),
                     analysis.getSuggestedBodyLocation() != null ? analysis.getSuggestedBodyLocation() : "A combinar com o tatuador",
+                    recommended,
                     analysis.getTechnicalNotes(),
                     minPrice,
                     maxPrice
             );
 
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
         } else {
             // Cliente enviou apenas texto sem imagem
             String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
@@ -120,6 +139,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                         customer.getName()
                 );
                 evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+                chatService.recordBotMessage(session, customer, reply);
                 return;
             }
 
@@ -127,13 +147,14 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                 session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
                 String reply = String.format(
                         "Ótimo, %s! 🗓️ Vamos iniciar seu agendamento com base no seu orçamento.\n\n" +
-                        "Por favor, me informe:\n" +
-                        "1. O tatuador de sua preferência (ou digite *qualquer* se não tiver preferência)\n" +
-                        "2. A data e período desejados (Ex: próxima sexta-feira à tarde, ou dia 20/10)\n\n" +
+                        "Nossa equipe conta com 11 artistas especialistas. Por favor, me informe:\n" +
+                        "1. O tatuador de sua preferência (ou digite *qualquer* se preferir o especialista indicado)\n" +
+                        "2. A data ou dia da semana desejado (Ex: sexta-feira à tarde, ou dia 20/11)\n\n" +
                         "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
                         customer.getName()
                 );
                 evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+                chatService.recordBotMessage(session, customer, reply);
                 return;
             }
 
@@ -146,6 +167,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                     (messageText != null ? messageText : "")
             );
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
         }
     }
 
@@ -156,6 +178,11 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             context.put("style", analysis.getStyle());
             context.put("complexityLevel", analysis.getComplexityLevel());
             context.put("estimatedHours", analysis.getEstimatedHours());
+            context.put("sizeCategory", analysis.getSizeCategory());
+            context.put("estimatedSizeCm", analysis.getEstimatedSizeCm());
+            context.put("recommendedArtists", analysis.getRecommendedArtists());
+            context.put("suggestedBodyLocation", analysis.getSuggestedBodyLocation());
+            context.put("technicalNotes", analysis.getTechnicalNotes());
             context.put("basePrice", basePrice);
             context.put("minPrice", minPrice);
             context.put("maxPrice", maxPrice);
