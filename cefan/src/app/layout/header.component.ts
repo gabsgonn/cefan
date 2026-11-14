@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AppointmentService } from '../core/services/appointment.service';
+import { AuthService } from '../core/services/auth.service';
 import { NotificationEvent } from '../core/models/appointment.model';
 
 @Component({
@@ -19,11 +20,11 @@ import { NotificationEvent } from '../core/models/appointment.model';
           </div>
           <div class="brand-text">
             <span class="brand-title">CEFAN</span>
-            <span class="studio-badge">Vício Tattoo</span>
+            <span class="studio-badge">{{ authService.currentUser()?.studioName || 'Vício Tattoo' }}</span>
           </div>
         </div>
 
-        <nav class="nav-links" *ngIf="adminService.isAuthenticated()">
+        <nav class="nav-links" *ngIf="authService.isAuthenticated()">
           <a routerLink="/agenda" routerLinkActive="active" class="nav-item">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -42,7 +43,19 @@ import { NotificationEvent } from '../core/models/appointment.model';
             <span *ngIf="humanQueueCount() > 0" class="nav-badge">{{ humanQueueCount() }}</span>
           </a>
 
-          <a routerLink="/configuracoes" routerLinkActive="active" class="nav-item">
+          <!-- Gestão de Profissionais e Taxas Individuais (Exclusivo Dono) -->
+          <a *ngIf="authService.isOwner()" routerLink="/profissionais" routerLinkActive="active" class="nav-item">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            <span>Profissionais</span>
+          </a>
+
+          <!-- Configurações do Estúdio visíveis estritamente para o Dono (OWNER / ADMIN) -->
+          <a *ngIf="authService.isOwner()" routerLink="/configuracoes" routerLinkActive="active" class="nav-item">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -58,7 +71,7 @@ import { NotificationEvent } from '../core/models/appointment.model';
           </div>
 
           <!-- Notificações em Tempo Real -->
-          <div class="notif-wrapper" *ngIf="adminService.isAuthenticated()">
+          <div class="notif-wrapper" *ngIf="authService.isAuthenticated()">
             <button class="notif-btn" (click)="toggleNotifications()" title="Notificações em Tempo Real">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
@@ -84,8 +97,16 @@ import { NotificationEvent } from '../core/models/appointment.model';
             </div>
           </div>
 
+          <!-- Usuário Autenticado & Role Badge -->
+          <div class="user-profile" *ngIf="authService.isAuthenticated()">
+            <span class="user-name">{{ authService.currentUser()?.name }}</span>
+            <span class="user-badge" [ngClass]="authService.isOwner() ? 'badge-owner' : 'badge-artist'">
+              {{ authService.isOwner() ? 'Dono' : 'Tatuador' }}
+            </span>
+          </div>
+
           <button
-            *ngIf="adminService.isAuthenticated()"
+            *ngIf="authService.isAuthenticated()"
             class="logout-btn"
             (click)="logout()"
             title="Sair do Painel">
@@ -310,6 +331,43 @@ import { NotificationEvent } from '../core/models/appointment.model';
       color: var(--text-secondary);
     }
 
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.65rem;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+
+      .user-name {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .user-badge {
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 0.15rem 0.45rem;
+        border-radius: var(--radius-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &.badge-owner {
+          background-color: rgba(99, 102, 241, 0.2);
+          color: #818cf8;
+          border: 1px solid rgba(99, 102, 241, 0.4);
+        }
+
+        &.badge-artist {
+          background-color: rgba(16, 185, 129, 0.2);
+          color: #34d399;
+          border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+      }
+    }
+
     .logout-btn {
       background-color: transparent;
       border: 1px solid var(--border-color);
@@ -375,6 +433,7 @@ import { NotificationEvent } from '../core/models/appointment.model';
 })
 export class HeaderComponent implements OnInit {
   readonly adminService = inject(AppointmentService);
+  readonly authService = inject(AuthService);
   private readonly router = inject(Router);
 
   readonly notifications = signal<NotificationEvent[]>([]);
@@ -394,7 +453,7 @@ export class HeaderComponent implements OnInit {
   }
 
   refreshAlerts(): void {
-    if (!this.adminService.isAuthenticated()) return;
+    if (!this.authService.isAuthenticated()) return;
     this.adminService.getNotifications().subscribe({
       next: (list) => {
         this.notifications.set(list || []);
@@ -405,7 +464,6 @@ export class HeaderComponent implements OnInit {
   }
 
   logout(): void {
-    this.adminService.logout();
-    this.router.navigate(['/login']);
+    this.authService.logout();
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Router, CanActivateFn } from '@angular/router';
 import { Observable, tap } from 'rxjs';
+import { AuthService } from './auth.service';
 import {
   Appointment,
   AppointmentAuditLog,
@@ -40,13 +41,7 @@ export class AppointmentService {
     } catch {
       // ignore storage errors in test environments
     }
-    return {
-      token: 'demo-session-token',
-      name: 'Dono - Vício Tattoo',
-      email: 'admin@viciotattoo.com',
-      role: 'ADMIN',
-      studioName: 'Vício Tattoo'
-    };
+    return null;
   }
 
   login(email: string, password: string): Observable<AuthUser> {
@@ -155,9 +150,9 @@ export class AppointmentService {
 }
 
 export const authGuard: CanActivateFn = () => {
-  const service = inject(AppointmentService);
+  const authService = inject(AuthService);
   const router = inject(Router);
-  if (service.isAuthenticated()) {
+  if (authService.isAuthenticated()) {
     return true;
   }
   return router.createUrlTree(['/login']);
