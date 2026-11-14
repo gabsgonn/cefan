@@ -37,6 +37,35 @@ public class TenantConfig {
     @Builder.Default
     private BigDecimal fixedSetupCost = new BigDecimal("50.00");
 
+    @Column(name = "signal_percentage", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal signalPercentage = new BigDecimal("30.00");
+
+    @Column(name = "min_deposit_amount", nullable = false, precision = 10, scale = 2)
+    @Builder.Default
+    private BigDecimal minDepositAmount = new BigDecimal("50.00");
+
+    @Column(name = "welcome_message", columnDefinition = "TEXT")
+    private String welcomeMessage;
+
+    @Column(name = "orcamento_intro_message", columnDefinition = "TEXT")
+    private String orcamentoIntroMessage;
+
+    @Column(name = "agendamento_intro_message", columnDefinition = "TEXT")
+    private String agendamentoIntroMessage;
+
+    @Column(name = "pix_payment_message", columnDefinition = "TEXT")
+    private String pixPaymentMessage;
+
+    @Column(name = "pix_confirmed_message", columnDefinition = "TEXT")
+    private String pixConfirmedMessage;
+
+    @Column(name = "human_transfer_message", columnDefinition = "TEXT")
+    private String humanTransferMessage;
+
+    @Column(name = "bot_reset_message", columnDefinition = "TEXT")
+    private String botResetMessage;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

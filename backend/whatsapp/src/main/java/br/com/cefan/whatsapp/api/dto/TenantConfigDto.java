@@ -31,6 +31,24 @@ public class TenantConfigDto {
     @NotNull(message = "A definição de absorção de taxas é obrigatória")
     private Boolean absorbCreditCardFees;
 
+    private BigDecimal signalPercentage;
+
+    private BigDecimal minDepositAmount;
+
+    private String welcomeMessage;
+
+    private String orcamentoIntroMessage;
+
+    private String agendamentoIntroMessage;
+
+    private String pixPaymentMessage;
+
+    private String pixConfirmedMessage;
+
+    private String humanTransferMessage;
+
+    private String botResetMessage;
+
     public static TenantConfigDto fromEntity(TenantConfig entity) {
         return TenantConfigDto.builder()
                 .id(entity.getId())
@@ -38,6 +56,15 @@ public class TenantConfigDto {
                 .defaultHourlyRate(entity.getDefaultHourlyRate())
                 .fixedSetupCost(entity.getFixedSetupCost())
                 .absorbCreditCardFees(entity.getAbsorbCreditCardFees())
+                .signalPercentage(entity.getSignalPercentage() != null ? entity.getSignalPercentage() : new BigDecimal("30.00"))
+                .minDepositAmount(entity.getMinDepositAmount() != null ? entity.getMinDepositAmount() : new BigDecimal("50.00"))
+                .welcomeMessage(entity.getWelcomeMessage())
+                .orcamentoIntroMessage(entity.getOrcamentoIntroMessage())
+                .agendamentoIntroMessage(entity.getAgendamentoIntroMessage())
+                .pixPaymentMessage(entity.getPixPaymentMessage())
+                .pixConfirmedMessage(entity.getPixConfirmedMessage())
+                .humanTransferMessage(entity.getHumanTransferMessage())
+                .botResetMessage(entity.getBotResetMessage())
                 .build();
     }
 }

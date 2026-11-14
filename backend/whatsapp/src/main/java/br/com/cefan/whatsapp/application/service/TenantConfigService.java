@@ -35,6 +35,33 @@ public class TenantConfigService {
         config.setDefaultHourlyRate(dto.getDefaultHourlyRate());
         config.setFixedSetupCost(dto.getFixedSetupCost());
         config.setAbsorbCreditCardFees(dto.getAbsorbCreditCardFees());
+        if (dto.getSignalPercentage() != null) {
+            config.setSignalPercentage(dto.getSignalPercentage());
+        }
+        if (dto.getMinDepositAmount() != null) {
+            config.setMinDepositAmount(dto.getMinDepositAmount());
+        }
+        if (dto.getWelcomeMessage() != null) {
+            config.setWelcomeMessage(dto.getWelcomeMessage());
+        }
+        if (dto.getOrcamentoIntroMessage() != null) {
+            config.setOrcamentoIntroMessage(dto.getOrcamentoIntroMessage());
+        }
+        if (dto.getAgendamentoIntroMessage() != null) {
+            config.setAgendamentoIntroMessage(dto.getAgendamentoIntroMessage());
+        }
+        if (dto.getPixPaymentMessage() != null) {
+            config.setPixPaymentMessage(dto.getPixPaymentMessage());
+        }
+        if (dto.getPixConfirmedMessage() != null) {
+            config.setPixConfirmedMessage(dto.getPixConfirmedMessage());
+        }
+        if (dto.getHumanTransferMessage() != null) {
+            config.setHumanTransferMessage(dto.getHumanTransferMessage());
+        }
+        if (dto.getBotResetMessage() != null) {
+            config.setBotResetMessage(dto.getBotResetMessage());
+        }
 
         config = tenantConfigRepository.save(config);
         log.info("Configurações do estúdio [{}] atualizadas com sucesso.", config.getStudioName());

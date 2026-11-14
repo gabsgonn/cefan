@@ -1,5 +1,7 @@
 package br.com.cefan.whatsapp.api.controller;
 
+import br.com.cefan.whatsapp.api.dto.ChatMessageDto;
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
@@ -20,6 +22,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
@@ -52,6 +56,11 @@ public class StudioAdminController implements WebMvcConfigurer {
     private final UserRepository userRepository;
     private final EvolutionApiClient evolutionApiClient;
     private final EntityManager entityManager;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+    private final br.com.cefan.whatsapp.infrastructure.security.JwtTokenProvider jwtTokenProvider;
+    private final ChatService chatService;
+
+    private static final String DUMMY_HASH = "$2a$10$wN1FzZ5qF.pX8K7B5aQ5s.3tPz6E6tVj6K9f6V8e0h8y6f6v8e0h8";
 
     @Value("${cefan.admin.email:admin@viciotattoo.com}")
     private String adminEmail;
@@ -74,6 +83,7 @@ public class StudioAdminController implements WebMvcConfigurer {
     // ==========================================================
 
     @PostMapping("/auth/login")
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest request) {
         if (request == null || request.getEmail() == null || request.getPassword() == null) {
             throw new IllegalArgumentException("E-mail e senha são obrigatórios.");
@@ -83,24 +93,31 @@ public class StudioAdminController implements WebMvcConfigurer {
         String pass = request.getPassword().trim();
 
         Optional<User> dbUser = userRepository.findByEmail(email);
-        boolean authenticated = (email.equalsIgnoreCase(adminEmail) && pass.equals(adminPassword))
-                || (dbUser.isPresent() && Boolean.TRUE.equals(dbUser.get().getIsActive()) && pass.equals(adminPassword));
 
-        if (!authenticated) {
+        if (dbUser.isEmpty()) {
+            passwordEncoder.matches(pass, DUMMY_HASH);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("message", "Credenciais inválidas para o painel administrativo."));
         }
 
-        String name = dbUser.map(User::getName).orElse(adminName);
-        String role = dbUser.map(u -> u.getRole() != null ? u.getRole().name() : "OWNER").orElse("OWNER");
-        String token = Base64.getEncoder().encodeToString((email + ":" + System.currentTimeMillis()).getBytes());
+        User user = dbUser.get();
+        if (!Boolean.TRUE.equals(user.getIsActive()) || user.getPasswordHash() == null
+                || !passwordEncoder.matches(pass, user.getPasswordHash())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Credenciais inválidas para o painel administrativo."));
+        }
+
+        String token = jwtTokenProvider.generateToken(user);
+        String role = user.getRole() != null ? user.getRole().name() : "ARTIST";
+        String studioName = user.getTenant() != null ? user.getTenant().getStudioName() : "Vício Tattoo";
 
         return ResponseEntity.ok(Map.of(
                 "token", token,
-                "name", name,
-                "email", email,
+                "id", user.getId().toString(),
+                "name", user.getName(),
+                "email", user.getEmail(),
                 "role", role,
-                "studioName", "Vício Tattoo"
+                "studioName", studioName
         ));
     }
 
@@ -116,6 +133,21 @@ public class StudioAdminController implements WebMvcConfigurer {
                 ? sessionRepository.findByCurrentStateOrderByLastInteractionAtDesc(state)
                 : sessionRepository.findAllByOrderByLastInteractionAtDesc();
 
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        User currentUser = null;
+        if (auth != null && auth.getName() != null) {
+            currentUser = userRepository.findByEmail(auth.getName()).orElse(null);
+        }
+
+        // Se o usuário for um ARTIST (Tatuador), exibe estritamente os atendimentos atribuídos a ele
+        if (currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            final User artistUser = currentUser;
+            sessions = sessions.stream()
+                    .filter(s -> (s.getAssignedUser() != null && s.getAssignedUser().getId().equals(artistUser.getId())) ||
+                            (s.getAssignedArtistName() != null && s.getAssignedArtistName().toLowerCase().contains(artistUser.getName().toLowerCase())))
+                    .collect(Collectors.toList());
+        }
+
         List<ConversationSessionDto> dtos = sessions.stream()
                 .map(ConversationSessionDto::fromEntity)
                 .collect(Collectors.toList());
@@ -123,30 +155,69 @@ public class StudioAdminController implements WebMvcConfigurer {
         return ResponseEntity.ok(dtos);
     }
 
+    @GetMapping("/conversations/{id}/messages")
+    @Transactional(readOnly = true)
+    public ResponseEntity<List<ChatMessageDto>> getConversationMessages(@PathVariable UUID id) {
+        return ResponseEntity.ok(chatService.getMessagesBySession(id));
+    }
+
+    @GetMapping(value = "/conversations/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamConversationMessages(@PathVariable UUID id) {
+        return chatService.subscribe(id);
+    }
+
     @PostMapping("/conversations/{id}/messages")
     @Transactional
-    public ResponseEntity<ConversationSessionDto> sendHumanMessage(
+    public ResponseEntity<ChatMessageDto> sendHumanMessage(
             @PathVariable UUID id,
             @RequestBody SendMessageRequest request) {
         if (request == null || request.getMessage() == null || request.getMessage().isBlank()) {
             throw new IllegalArgumentException("A mensagem não pode estar vazia.");
         }
 
-        ConversationSession session = sessionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Sessão de atendimento não encontrada: " + id));
-
-        Customer customer = session.getCustomer();
-        String formattedMessage = "👨‍🎨 *Atendimento Vício Tattoo:*\n" + request.getMessage().trim();
-
-        evolutionApiClient.sendTextMessage(customer.getPhone(), formattedMessage);
-
-        session.setLastInteractionAt(OffsetDateTime.now());
-        if (session.getCurrentState() != ConversationState.TRANSBORDO_HUMANO) {
-            session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        User currentUser = null;
+        if (auth != null && auth.getName() != null) {
+            currentUser = userRepository.findByEmail(auth.getName()).orElse(null);
         }
-        session = sessionRepository.save(session);
 
-        return ResponseEntity.ok(ConversationSessionDto.fromEntity(session));
+        UUID agentUserId = (currentUser != null) ? currentUser.getId() : null;
+        ChatMessageDto chatMessage = chatService.sendAgentMessage(id, agentUserId, request.getMessage().trim());
+
+        // Garante transbordo humano ativo na sessão
+        sessionRepository.findById(id).ifPresent(session -> {
+            session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+            session.setLastInteractionAt(OffsetDateTime.now());
+            sessionRepository.save(session);
+        });
+
+        return ResponseEntity.ok(chatMessage);
+    }
+
+    @PostMapping("/conversations/{id}/assign")
+    @Transactional
+    public ResponseEntity<Void> assignArtist(
+            @PathVariable UUID id,
+            @RequestBody AssignArtistRequest request) {
+        chatService.assignArtist(id, request != null ? request.getArtistId() : null);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/conversations/{id}/reset")
+    @Transactional
+    public ResponseEntity<Void> resetBotSession(@PathVariable UUID id) {
+        chatService.resetBotSession(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/bot/status")
+    public ResponseEntity<Map<String, Object>> getBotStatus() {
+        return ResponseEntity.ok(Map.of(
+                "status", "CONNECTED",
+                "instance", "cefan-studio",
+                "webhookActive", true,
+                "timestamp", OffsetDateTime.now()
+        ));
     }
 
     @PatchMapping("/conversations/{id}/state")
@@ -407,6 +478,13 @@ public class StudioAdminController implements WebMvcConfigurer {
     }
 
     @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AssignArtistRequest {
+        private UUID artistId;
+    }
+
+    @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
@@ -417,6 +495,8 @@ public class StudioAdminController implements WebMvcConfigurer {
         private String customerPhone;
         private ConversationState currentState;
         private String contextData;
+        private UUID assignedUserId;
+        private String assignedArtistName;
         private OffsetDateTime lastInteractionAt;
         private OffsetDateTime createdAt;
         private OffsetDateTime updatedAt;
@@ -429,6 +509,8 @@ public class StudioAdminController implements WebMvcConfigurer {
                     .customerPhone(session.getCustomer() != null ? session.getCustomer().getPhone() : "")
                     .currentState(session.getCurrentState())
                     .contextData(session.getContextData())
+                    .assignedUserId(session.getAssignedUser() != null ? session.getAssignedUser().getId() : null)
+                    .assignedArtistName(session.getAssignedArtistName())
                     .lastInteractionAt(session.getLastInteractionAt())
                     .createdAt(session.getCreatedAt())
                     .updatedAt(session.getUpdatedAt())
