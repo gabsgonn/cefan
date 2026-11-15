@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, computed, inject } from '@angular/core';
+import { Component, OnInit, signal, computed, inject, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AppointmentService } from '../../core/services/appointment.service';
@@ -193,6 +193,8 @@ export interface CalendarDayColumn {
             <span class="legend-item"><span class="legend-dot free"></span> Livre (Clique para Agendar)</span>
             <span class="legend-item"><span class="legend-dot pending"></span> Bloqueado / Aguardando PIX</span>
             <span class="legend-item"><span class="legend-dot confirmed"></span> Confirmado (Sinal Pago)</span>
+            <span class="legend-item"><span class="legend-dot expired"></span> Expirado</span>
+            <span class="legend-item"><span class="legend-dot canceled"></span> Cancelado</span>
           </div>
         </div>
 
@@ -211,25 +213,40 @@ export interface CalendarDayColumn {
               <tr *ngFor="let hour of studioHours">
                 <td class="hour-cell">{{ hour }}:00</td>
                 <td *ngFor="let col of weekColumns()" class="slot-cell">
-                  <ng-container *ngIf="getSlotAppointment(col.dateKey, hour) as slotApt; else freeSlot">
-                    <div
-                      class="slot-card"
-                      [ngClass]="slotApt.status"
-                      (click)="openEditModal(slotApt)">
-                      <div class="slot-customer">{{ slotApt.customerName }}</div>
-                      <div class="slot-status">
-                        {{ slotApt.isTouchup ? 'Retoque (R$ 0)' : getStatusLabel(slotApt.status) }}
+                  <ng-container *ngIf="getSlotAppointments(col.dateKey, hour) as apts">
+                    <div class="slot-content">
+                      <div
+                        *ngFor="let slotApt of apts"
+                        class="slot-card"
+                        [ngClass]="slotApt.status"
+                        (click)="openEditModal(slotApt)">
+                        <div class="slot-header-row">
+                          <span class="slot-customer">{{ slotApt.customerName }}</span>
+                          <span class="slot-time-badge">{{ formatTimeRange(slotApt.scheduledStart, slotApt.scheduledEnd) }}</span>
+                        </div>
+                        <div class="slot-status">
+                          {{ slotApt.isTouchup ? 'Retoque (R$ 0)' : getStatusLabel(slotApt.status) }}
+                        </div>
                       </div>
+
+                      <!-- Botão de Agendamento: "+ Livre" se vazio, "+ Adicionar" se já ocupado/particionado -->
+                      <button
+                        *ngIf="apts.length === 0"
+                        class="slot-free-btn"
+                        title="Horário livre — clique para agendar"
+                        (click)="openCreateModalForSlot(col.date, hour)">
+                        + Livre
+                      </button>
+
+                      <button
+                        *ngIf="apts.length > 0"
+                        class="slot-add-mini-btn"
+                        title="Adicionar mais um agendamento ou horário particionado neste bloco"
+                        (click)="openCreateModalForSlot(col.date, hour)">
+                        + Adicionar
+                      </button>
                     </div>
                   </ng-container>
-                  <ng-template #freeSlot>
-                    <button
-                      class="slot-free-btn"
-                      title="Horário livre — clique para agendar"
-                      (click)="openCreateModalForSlot(col.date, hour)">
-                      + Livre
-                    </button>
-                  </ng-template>
                 </td>
               </tr>
             </tbody>
@@ -996,6 +1013,8 @@ export interface CalendarDayColumn {
       &.free { background-color: var(--border-light); }
       &.pending { background-color: var(--color-warning); }
       &.confirmed { background-color: var(--color-success); }
+      &.expired { background-color: var(--text-muted); }
+      &.canceled { background-color: var(--color-danger); }
     }
 
     .calendar-grid-wrapper {
@@ -1031,6 +1050,20 @@ export interface CalendarDayColumn {
       }
     }
 
+    .slot-cell {
+      padding: 0.35rem;
+      vertical-align: top;
+      text-align: left;
+      min-width: 110px;
+    }
+
+    .slot-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-height: 100%;
+    }
+
     .slot-free-btn {
       width: 100%;
       padding: 0.45rem;
@@ -1040,6 +1073,30 @@ export interface CalendarDayColumn {
       color: var(--text-muted);
       font-size: 0.72rem;
       cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+        background-color: rgba(99, 102, 241, 0.08);
+      }
+    }
+
+    .slot-add-mini-btn {
+      width: 100%;
+      padding: 0.25rem 0.4rem;
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 0.68rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25rem;
 
       &:hover {
         border-color: var(--accent-primary);
@@ -1049,11 +1106,17 @@ export interface CalendarDayColumn {
     }
 
     .slot-card {
-      padding: 0.4rem 0.5rem;
+      padding: 0.45rem 0.55rem;
       border-radius: var(--radius-sm);
       font-size: 0.74rem;
       text-align: left;
       cursor: pointer;
+      transition: all 0.15s ease;
+
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+      }
 
       &.CONFIRMADO {
         background-color: var(--color-success-bg);
@@ -1066,11 +1129,62 @@ export interface CalendarDayColumn {
         border: 1px solid rgba(245, 158, 11, 0.4);
         color: var(--color-warning);
       }
+
+      &.EXPIRADO {
+        background-color: var(--bg-surface);
+        border: 1px dashed var(--border-color);
+        color: var(--text-muted);
+        opacity: 0.8;
+      }
+
+      &.CANCELADO {
+        background-color: var(--color-danger-bg);
+        border: 1px dashed rgba(239, 68, 68, 0.4);
+        color: var(--color-danger);
+        opacity: 0.75;
+        text-decoration: line-through;
+      }
+    }
+
+    .slot-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.35rem;
+      margin-bottom: 0.2rem;
     }
 
     .slot-customer {
       font-weight: 700;
       color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.74rem;
+    }
+
+    .slot-card.CANCELADO .slot-customer,
+    .slot-card.EXPIRADO .slot-customer {
+      color: inherit;
+    }
+
+    .slot-time-badge {
+      font-size: 0.65rem;
+      font-family: monospace;
+      font-weight: 600;
+      padding: 0.1rem 0.3rem;
+      border-radius: var(--radius-sm);
+      background-color: rgba(255, 255, 255, 0.08);
+      color: var(--text-primary);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .slot-status {
+      font-size: 0.68rem;
+      opacity: 0.85;
+      margin-top: 0.15rem;
     }
 
     .hour-col, .hour-cell {
@@ -1136,7 +1250,8 @@ export class AgendaComponent implements OnInit {
   readonly saving = signal<boolean>(false);
   readonly searchQuery = signal<string>('');
   readonly selectedStatus = signal<string>('ALL');
-  readonly viewMode = signal<'CALENDAR' | 'LIST'>('LIST');
+  private readonly STORAGE_KEY = 'app_view_mode';
+  readonly viewMode = signal<'CALENDAR' | 'LIST'>(this.getInitialViewMode());
   readonly weekOffset = signal<number>(0);
 
   readonly studioHours: number[] = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
@@ -1152,6 +1267,20 @@ export class AgendaComponent implements OnInit {
   readonly selectedAppointment = signal<Appointment | null>(null);
   readonly auditLogs = signal<AppointmentAuditLog[]>([]);
 
+  getInitialViewMode(): 'CALENDAR' | 'LIST' {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = localStorage.getItem(this.STORAGE_KEY);
+        if (saved === 'CALENDAR' || saved === 'LIST') {
+          return saved;
+        }
+      }
+    } catch {
+      // Fallback seguro caso o localStorage esteja desabilitado ou bloqueado
+    }
+    return 'LIST';
+  }
+
   readonly weekColumns = computed<CalendarDayColumn[]>(() => {
     const offset = this.weekOffset();
     const base = new Date();
@@ -1161,7 +1290,8 @@ export class AgendaComponent implements OnInit {
     monday.setDate(base.getDate() + diffToMonday + offset * 7);
     monday.setHours(0, 0, 0, 0);
 
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const dayNames = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
     return dayNames.map((name, idx) => {
@@ -1195,6 +1325,18 @@ export class AgendaComponent implements OnInit {
 
   private initialEditFormState = '';
   private initialCreateFormState = '';
+
+  constructor() {
+    effect(() => {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.setItem(this.STORAGE_KEY, this.viewMode());
+        }
+      } catch {
+        // Fallback silencioso
+      }
+    });
+  }
 
   isEditFormDirty(): boolean {
     if (!this.showEditModal()) return false;
@@ -1400,21 +1542,80 @@ export class AgendaComponent implements OnInit {
     this.weekOffset.set(0);
   }
 
-  getSlotAppointment(dateKey: string, hour: number): Appointment | undefined {
-    return this.filteredAppointments().find(a => {
-      if (a.status === 'CANCELADO' || a.status === 'EXPIRADO') return false;
-      const start = new Date(a.scheduledStart);
-      const end = a.scheduledEnd ? new Date(a.scheduledEnd) : new Date(start.getTime() + 60 * 60 * 1000);
-      const aptKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
-      return aptKey === dateKey && hour >= start.getHours() && hour < Math.max(start.getHours() + 1, end.getHours());
-    });
+  getSlotAppointments(dateKey: string, hour: number): Appointment[] {
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const slotStart = new Date(year, month - 1, day, hour, 0, 0, 0);
+    const slotEnd = new Date(year, month - 1, day, hour + 1, 0, 0, 0);
+
+    return this.filteredAppointments()
+      .filter(a => {
+        const start = new Date(a.scheduledStart);
+        if (isNaN(start.getTime())) return false;
+        let end = a.scheduledEnd && !isNaN(new Date(a.scheduledEnd).getTime())
+          ? new Date(a.scheduledEnd)
+          : new Date(start.getTime() + 60 * 60 * 1000);
+        if (end <= start) {
+          end = new Date(start.getTime() + 60 * 60 * 1000);
+        }
+        return start < slotEnd && end > slotStart;
+      })
+      .sort((a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime());
   }
 
   openCreateModalForSlot(date: Date, hour: number): void {
-    const start = new Date(date);
-    start.setHours(hour, 0, 0, 0);
-    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
     const pad = (n: number) => (n < 10 ? '0' + n : n);
+    const dateKey = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const slotApts = this.getSlotAppointments(dateKey, hour);
+
+    let startMinute = 0;
+
+    // Use only active appointments (not cancelled or expired) to determine physical studio occupation
+    const activeApts = slotApts.filter(a => a.status !== 'CANCELADO' && a.status !== 'EXPIRADO');
+
+    if (activeApts.length > 0) {
+      const endsInHour = activeApts
+        .map(a => {
+          const s = new Date(a.scheduledStart);
+          let e = a.scheduledEnd && !isNaN(new Date(a.scheduledEnd).getTime())
+            ? new Date(a.scheduledEnd)
+            : new Date(s.getTime() + 60 * 60 * 1000);
+          if (e <= s) {
+            e = new Date(s.getTime() + 60 * 60 * 1000);
+          }
+          return e;
+        })
+        .filter(d =>
+          d.getFullYear() === date.getFullYear() &&
+          d.getMonth() === date.getMonth() &&
+          d.getDate() === date.getDate() &&
+          d.getHours() === hour &&
+          d.getMinutes() > 0
+        )
+        .sort((a, b) => b.getTime() - a.getTime());
+
+      // Candidate end minutes must not be covered by another active appointment in the slot
+      for (const endCandidate of endsInHour) {
+        const isOccupied = activeApts.some(a => {
+          const s = new Date(a.scheduledStart);
+          let e = a.scheduledEnd && !isNaN(new Date(a.scheduledEnd).getTime())
+            ? new Date(a.scheduledEnd)
+            : new Date(s.getTime() + 60 * 60 * 1000);
+          if (e <= s) {
+            e = new Date(s.getTime() + 60 * 60 * 1000);
+          }
+          return s.getTime() <= endCandidate.getTime() && endCandidate.getTime() < e.getTime();
+        });
+
+        if (!isOccupied) {
+          startMinute = endCandidate.getMinutes();
+          break;
+        }
+      }
+    }
+
+    const start = new Date(date);
+    start.setHours(hour, startMinute, 0, 0);
+    const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
     const formatLocal = (d: Date) =>
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
@@ -1449,15 +1650,18 @@ export class AgendaComponent implements OnInit {
   formatDate(dateStr: string): string {
     if (!dateStr) return '';
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
   formatTimeRange(startStr: string, endStr: string): string {
     if (!startStr) return '';
     const s = new Date(startStr);
+    if (isNaN(s.getTime())) return '';
     const startTime = s.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     if (!endStr) return startTime;
     const e = new Date(endStr);
+    if (isNaN(e.getTime())) return startTime;
     const endTime = e.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     return `${startTime} - ${endTime}`;
   }
