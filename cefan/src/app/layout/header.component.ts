@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AppointmentService } from '../core/services/appointment.service';
@@ -439,6 +439,18 @@ export class HeaderComponent implements OnInit {
   readonly notifications = signal<NotificationEvent[]>([]);
   readonly humanQueueCount = signal<number>(0);
   readonly showNotifDropdown = signal<boolean>(false);
+
+  constructor() {
+    effect(() => {
+      const user = this.authService.currentUser();
+      if (user && user.token) {
+        this.refreshAlerts();
+      } else {
+        this.notifications.set([]);
+        this.humanQueueCount.set(0);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.refreshAlerts();

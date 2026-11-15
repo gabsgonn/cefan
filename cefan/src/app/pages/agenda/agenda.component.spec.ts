@@ -529,4 +529,47 @@ describe('AgendaComponent - Partitioned Schedules and Overlap Logic', () => {
     expect(todayCol).toBeDefined();
     expect(todayCol?.dateKey).toBe(expectedTodayKey);
   });
+
+  it('should calculate artistCommissionEstimate dynamically for PERCENTAGE and HOURLY artists', () => {
+    const apt = createMockAppointment({
+      id: 'apt-comm-1',
+      scheduledStart: '2026-11-16T12:00:00',
+      scheduledEnd: '2026-11-16T14:30:00', // 2.5 hours
+      status: 'CONFIRMADO',
+      isTouchup: false,
+      totalPrice: 400
+    });
+    component.appointments.set([apt]);
+
+    // 1. Default 60% when no artist profile matched
+    expect(component.artistCommissionEstimate()).toBe(240);
+
+    // 2. Match artist with 65% PERCENTAGE rate
+    component.authService.currentUser.set({
+      id: 'prof-mariana',
+      name: 'Mariana Rocha',
+      email: 'mariana@viciotattoo.com',
+      role: 'ARTIST',
+      studioName: 'Vício Tattoo',
+      token: 'jwt',
+      artistRateType: 'PERCENTAGE',
+      artistRateValue: 65
+    });
+    expect(component.artistCommissionLabel()).toContain('65%');
+    expect(component.artistCommissionEstimate()).toBe(260); // 400 * 0.65
+
+    // 3. Match artist with HOURLY rate (R$ 80/h * 2.5h = R$ 200)
+    component.authService.currentUser.set({
+      id: 'prof-larissa',
+      name: 'Larissa Piercing',
+      email: 'larissa@viciotattoo.com',
+      role: 'ARTIST',
+      studioName: 'Vício Tattoo',
+      token: 'jwt',
+      artistRateType: 'HOURLY',
+      artistRateValue: 80
+    });
+    expect(component.artistCommissionLabel()).toContain('R$ 80/h');
+    expect(component.artistCommissionEstimate()).toBe(200);
+  });
 });

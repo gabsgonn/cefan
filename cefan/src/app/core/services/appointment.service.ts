@@ -74,7 +74,7 @@ export class AppointmentService {
     return this.currentUser() !== null;
   }
 
-  getAppointments(status?: string, start?: string, end?: string): Observable<Appointment[]> {
+  getAppointments(status?: string, start?: string, end?: string, artistId?: string): Observable<Appointment[]> {
     let params = new HttpParams();
     if (status && status !== 'ALL') {
       params = params.set('status', status);
@@ -84,6 +84,9 @@ export class AppointmentService {
     }
     if (end) {
       params = params.set('end', end);
+    }
+    if (artistId && artistId !== 'ALL') {
+      params = params.set('artistId', artistId);
     }
     return this.http.get<Appointment[]>(this.baseUrl, { params });
   }

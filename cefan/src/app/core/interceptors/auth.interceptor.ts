@@ -23,8 +23,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         return throwError(() => error);
       }
 
-      // Se qualquer outra chamada falhar por falta de autenticação (401) ou acesso proibido (403), desloga e redireciona
-      if (error.status === 401 || error.status === 403) {
+      // Se qualquer outra chamada falhar por falta de autenticação (401), desloga e redireciona
+      if (error.status === 401) {
         authService.logout();
       }
 

@@ -2,6 +2,9 @@ import { Component, OnInit, signal, computed, inject, effect } from '@angular/co
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AppointmentService } from '../../core/services/appointment.service';
+import { AuthService } from '../../core/services/auth.service';
+import { ProfessionalService } from '../../core/services/professional.service';
+import { Professional } from '../../core/models/professional.model';
 import {
   Appointment,
   AppointmentAuditLog,
@@ -113,9 +116,13 @@ export interface CalendarDayColumn {
               <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
             </svg>
           </div>
-          <div class="metric-data">
+          <div class="metric-data" *ngIf="authService.isOwner()">
             <span class="metric-value">R$ {{ confirmedRevenue() | number:'1.2-2' }}</span>
             <span class="metric-label">Total em Sinal (30%)</span>
+          </div>
+          <div class="metric-data" *ngIf="!authService.isOwner()">
+            <span class="metric-value">R$ {{ artistCommissionEstimate() | number:'1.2-2' }}</span>
+            <span class="metric-label">{{ artistCommissionLabel() }}</span>
           </div>
         </div>
       </div>
@@ -135,10 +142,28 @@ export interface CalendarDayColumn {
           </svg>
           <input
             type="text"
-            placeholder="Buscar por cliente ou telefone..."
+            placeholder="Buscar por cliente, telefone ou profissional..."
             [ngModel]="searchQuery()"
             (ngModelChange)="searchQuery.set($event)"
           />
+        </div>
+
+        <div class="artist-filter-box" *ngIf="authService.isOwner() && professionals().length > 0">
+          <select
+            class="artist-select-control"
+            [ngModel]="selectedArtistId()"
+            (ngModelChange)="selectedArtistId.set($event)"
+            style="background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.55rem 0.85rem; border-radius: var(--radius-md); font-size: 0.82rem; outline: none;">
+            <option value="ALL">Todos os Profissionais ({{ professionals().length }})</option>
+            <option *ngFor="let prof of professionals()" [value]="prof.id">
+              👨‍🎨 {{ prof.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="artist-lock-badge" *ngIf="authService.isAuthenticated() && !authService.isOwner()"
+             style="font-size: 0.78rem; font-weight: 600; color: #34d399; background: rgba(16, 185, 129, 0.12); padding: 0.4rem 0.75rem; border-radius: var(--radius-full); border: 1px solid rgba(16, 185, 129, 0.3);">
+          🔒 Agenda Individual: {{ authService.currentUser()?.name }}
         </div>
 
         <div class="status-filters">
@@ -406,6 +431,18 @@ export interface CalendarDayColumn {
           <div class="input-group">
             <label>Telefone / WhatsApp (com DDD) *</label>
             <input type="text" [(ngModel)]="createForm.customerPhone" placeholder="Ex: 5511999998888" />
+          </div>
+
+          <div class="input-group" *ngIf="authService.isOwner() && professionals().length > 0">
+            <label>Profissional Responsável</label>
+            <select
+              [(ngModel)]="createForm.artistId"
+              style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); font-size: 0.9rem; outline: none;">
+              <option value="">Selecionar Tatuador / Piercer...</option>
+              <option *ngFor="let prof of professionals()" [value]="prof.id">
+                {{ prof.name }} ({{ prof.specialties || 'Tatuador' }})
+              </option>
+            </select>
           </div>
 
           <div class="form-row">
@@ -1244,8 +1281,12 @@ export interface CalendarDayColumn {
 })
 export class AgendaComponent implements OnInit {
   private readonly appointmentService = inject(AppointmentService);
+  readonly authService = inject(AuthService);
+  private readonly professionalService = inject(ProfessionalService);
 
   readonly appointments = signal<Appointment[]>([]);
+  readonly professionals = signal<Professional[]>([]);
+  readonly selectedArtistId = signal<string>('ALL');
   readonly loading = signal<boolean>(false);
   readonly saving = signal<boolean>(false);
   readonly searchQuery = signal<string>('');
@@ -1316,6 +1357,7 @@ export class AgendaComponent implements OnInit {
   createForm = {
     customerName: '',
     customerPhone: '',
+    artistId: '',
     scheduledStart: '',
     scheduledEnd: '',
     isTouchup: false,
@@ -1358,13 +1400,57 @@ export class AgendaComponent implements OnInit {
   );
 
   readonly confirmedRevenue = computed(() =>
-    this.appointments()
+    this.filteredAppointments()
       .filter(a => a.status === 'CONFIRMADO')
       .reduce((sum, a) => sum + (Number(a.depositAmount) || 0), 0)
   );
 
+  readonly currentArtistProfile = computed<Professional | null>(() => {
+    const user = this.authService.currentUser();
+    if (!user) return null;
+    const list = this.professionals();
+    return (
+      list.find(p => (user.id && p.id === user.id) || (user.email && p.email?.toLowerCase() === user.email.toLowerCase())) ||
+      null
+    );
+  });
+
+  readonly artistCommissionLabel = computed(() => {
+    const prof = this.currentArtistProfile();
+    const user = this.authService.currentUser();
+    const rateType = prof?.artistRateType || user?.artistRateType || 'PERCENTAGE';
+    const rateValue = Number(prof?.artistRateValue ?? user?.artistRateValue ?? 60);
+    if (rateType === 'HOURLY') {
+      return `Meus Ganhos Estimados (R$ ${rateValue}/h)`;
+    }
+    return `Minha Comissão Estimada (${rateValue}%)`;
+  });
+
+  readonly artistCommissionEstimate = computed(() => {
+    const prof = this.currentArtistProfile();
+    const user = this.authService.currentUser();
+    const rateType = prof?.artistRateType || user?.artistRateType || 'PERCENTAGE';
+    const rateValue = Number(prof?.artistRateValue ?? user?.artistRateValue ?? 60);
+
+    return this.filteredAppointments()
+      .filter(a => a.status === 'CONFIRMADO' && !a.isTouchup)
+      .reduce((sum, a) => {
+        if (rateType === 'HOURLY') {
+          const s = new Date(a.scheduledStart).getTime();
+          const e = new Date(a.scheduledEnd).getTime();
+          const hours = !isNaN(s) && !isNaN(e) && e > s ? Math.max(0.5, (e - s) / 3_600_000) : 2;
+          return sum + hours * rateValue;
+        }
+        return sum + (Number(a.totalPrice) || 0) * (rateValue / 100);
+      }, 0);
+  });
+
   readonly filteredAppointments = computed(() => {
     let list = this.appointments();
+
+    if (this.selectedArtistId() !== 'ALL') {
+      list = list.filter(a => a.artistId === this.selectedArtistId());
+    }
 
     if (this.selectedStatus() !== 'ALL') {
       list = list.filter(a => a.status === this.selectedStatus());
@@ -1374,7 +1460,8 @@ export class AgendaComponent implements OnInit {
     if (query) {
       list = list.filter(a =>
         a.customerName.toLowerCase().includes(query) ||
-        a.customerPhone.includes(query)
+        a.customerPhone.includes(query) ||
+        (a.artistName && a.artistName.toLowerCase().includes(query))
       );
     }
 
@@ -1383,6 +1470,12 @@ export class AgendaComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadAppointments();
+    if (this.authService.isAuthenticated()) {
+      this.professionalService.listAll(true).subscribe({
+        next: (list) => this.professionals.set(list || []),
+        error: () => {}
+      });
+    }
   }
 
   loadAppointments(): void {
@@ -1452,6 +1545,7 @@ export class AgendaComponent implements OnInit {
     this.createForm = {
       customerName: '',
       customerPhone: '5511',
+      artistId: this.selectedArtistId() !== 'ALL' ? this.selectedArtistId() : '',
       scheduledStart: formatLocal(now),
       scheduledEnd: formatLocal(end),
       isTouchup: false,
@@ -1483,6 +1577,7 @@ export class AgendaComponent implements OnInit {
     const req: CreateAppointmentRequest = {
       customerName: this.createForm.customerName,
       customerPhone: this.createForm.customerPhone,
+      artistId: this.createForm.artistId || undefined,
       scheduledStart: new Date(this.createForm.scheduledStart).toISOString(),
       scheduledEnd: new Date(this.createForm.scheduledEnd).toISOString(),
       isTouchup: this.createForm.isTouchup,
@@ -1622,6 +1717,7 @@ export class AgendaComponent implements OnInit {
     this.createForm = {
       customerName: '',
       customerPhone: '5511',
+      artistId: this.selectedArtistId() !== 'ALL' ? this.selectedArtistId() : '',
       scheduledStart: formatLocal(start),
       scheduledEnd: formatLocal(end),
       isTouchup: false,

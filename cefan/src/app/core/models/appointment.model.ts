@@ -5,6 +5,8 @@ export interface Appointment {
   customerId?: string;
   customerName: string;
   customerPhone: string;
+  artistId?: string;
+  artistName?: string;
   scheduledStart: string;
   scheduledEnd: string;
   status: AppointmentStatus;
@@ -87,11 +89,14 @@ export interface AuthUser {
   email: string;
   role: string;
   studioName: string;
+  artistRateType?: 'PERCENTAGE' | 'HOURLY';
+  artistRateValue?: number;
 }
 
 export interface CreateAppointmentRequest {
   customerName: string;
   customerPhone: string;
+  artistId?: string;
   scheduledStart: string;
   scheduledEnd: string;
   isTouchup?: boolean;
@@ -100,6 +105,7 @@ export interface CreateAppointmentRequest {
 }
 
 export interface UpdateAppointmentRequest {
+  artistId?: string;
   scheduledStart?: string;
   scheduledEnd?: string;
   status?: AppointmentStatus;
