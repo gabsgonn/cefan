@@ -88,11 +88,14 @@ services:
     restart: always
     ports:
       - "8082:8082"
+    env_file:
+      - .env
     environment:
+      - SERVER_PORT=8082
       - CEFAN_SERVER_PORT=8082
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/cefan
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
-      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-PASSWORD}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-67dasilva67}
       - EVOLUTION_API_URL=http://evolution-api:8081
       - EVOLUTION_API_KEY=${AUTHENTICATION_API_KEY}
       - EVOLUTION_API_INSTANCE_NAME=${EVOLUTION_API_INSTANCE_NAME:-cefan-studio}
