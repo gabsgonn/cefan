@@ -2,10 +2,13 @@ package br.com.cefan.whatsapp.application.service;
 
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
+import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
+import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
+import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,14 +20,36 @@ import java.util.Locale;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AppointmentSchedulingService {
 
     private final AppointmentRepository appointmentRepository;
     private final EvolutionApiClient evolutionApiClient;
+    private final TenantConfigRepository tenantConfigRepository;
+    private final ConversationSessionRepository sessionRepository;
+    private final ChatService chatService;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.forLanguageTag("pt-BR"));
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("pt-BR"));
+
+    public AppointmentSchedulingService(
+            AppointmentRepository appointmentRepository,
+            EvolutionApiClient evolutionApiClient) {
+        this(appointmentRepository, evolutionApiClient, null, null, null);
+    }
+
+    @Autowired
+    public AppointmentSchedulingService(
+            AppointmentRepository appointmentRepository,
+            EvolutionApiClient evolutionApiClient,
+            TenantConfigRepository tenantConfigRepository,
+            ConversationSessionRepository sessionRepository,
+            ChatService chatService) {
+        this.appointmentRepository = appointmentRepository;
+        this.evolutionApiClient = evolutionApiClient;
+        this.tenantConfigRepository = tenantConfigRepository;
+        this.sessionRepository = sessionRepository;
+        this.chatService = chatService;
+    }
 
     /**
      * Rotina assíncrona que roda a cada 5 minutos verificando agendamentos que expiraram (2 horas sem pagamento do sinal).
@@ -40,6 +65,14 @@ public class AppointmentSchedulingService {
             log.info("Encontrados [{}] agendamentos expirados para cancelamento automático.", expired.size());
         }
 
+        TenantConfig config = (tenantConfigRepository != null)
+                ? tenantConfigRepository.findAll().stream().findFirst().orElse(null)
+                : null;
+        int expMinutes = (config != null && config.getPixExpirationMinutes() != null && config.getPixExpirationMinutes() > 0)
+                ? config.getPixExpirationMinutes()
+                : 120;
+        String expLabel = (expMinutes == 120) ? "2 horas" : (expMinutes + " minutos");
+
         for (Appointment appointment : expired) {
             appointment.setStatus(AppointmentStatus.EXPIRADO);
             appointmentRepository.save(appointment);
@@ -52,12 +85,17 @@ public class AppointmentSchedulingService {
 
             String message = String.format(
                     "⏰ *Aviso de Expiração do Horário* ⏰\n\n" +
-                    "Olá, %s! Seu pré-agendamento de sessão não foi concluído devido ao tempo limite de 2 horas para o pagamento do sinal via PIX.\n\n" +
+                    "Olá, %s! Seu pré-agendamento de sessão não foi concluído devido ao tempo limite de %s para o pagamento do sinal via PIX.\n\n" +
                     "A grade de horários foi liberada. Caso ainda deseje agendar sua sessão, basta digitar *2* para escolher uma nova data a qualquer momento! 🎨",
-                    customerName
+                    customerName,
+                    expLabel
             );
 
             evolutionApiClient.sendTextMessage(customerPhone, message);
+            if (sessionRepository != null && chatService != null) {
+                sessionRepository.findByCustomer(appointment.getCustomer())
+                        .ifPresent(session -> chatService.recordBotMessage(session, appointment.getCustomer(), message));
+            }
         }
     }
 

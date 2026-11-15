@@ -41,6 +41,18 @@ public class TenantConfigService {
         if (dto.getMinDepositAmount() != null) {
             config.setMinDepositAmount(dto.getMinDepositAmount());
         }
+        if (dto.getPixExpirationMinutes() != null && dto.getPixExpirationMinutes() > 0) {
+            config.setPixExpirationMinutes(dto.getPixExpirationMinutes());
+        }
+        if (dto.getOpeningTime() != null && !dto.getOpeningTime().isBlank()) {
+            config.setOpeningTime(dto.getOpeningTime().trim());
+        }
+        if (dto.getClosingTime() != null && !dto.getClosingTime().isBlank()) {
+            config.setClosingTime(dto.getClosingTime().trim());
+        }
+        if (dto.getWorkingDays() != null && !dto.getWorkingDays().isBlank()) {
+            config.setWorkingDays(dto.getWorkingDays().trim());
+        }
         if (dto.getWelcomeMessage() != null) {
             config.setWelcomeMessage(dto.getWelcomeMessage());
         }
@@ -61,6 +73,9 @@ public class TenantConfigService {
         }
         if (dto.getBotResetMessage() != null) {
             config.setBotResetMessage(dto.getBotResetMessage());
+        }
+        if (dto.getAbsenceMessage() != null) {
+            config.setAbsenceMessage(dto.getAbsenceMessage());
         }
 
         config = tenantConfigRepository.save(config);

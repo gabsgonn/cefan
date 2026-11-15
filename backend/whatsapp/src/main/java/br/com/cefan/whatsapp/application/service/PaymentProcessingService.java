@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.service;
 
+import br.com.cefan.whatsapp.api.controller.StudioAdminController;
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
@@ -27,6 +28,7 @@ public class PaymentProcessingService {
     private final ConversationSessionRepository sessionRepository;
     private final TenantConfigRepository tenantConfigRepository;
     private final ChatService chatService;
+    private final StudioAdminController studioAdminController;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.forLanguageTag("pt-BR"));
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("pt-BR"));
@@ -35,7 +37,17 @@ public class PaymentProcessingService {
             AppointmentRepository appointmentRepository,
             MercadoPagoPaymentClient paymentClient,
             EvolutionApiClient evolutionApiClient) {
-        this(appointmentRepository, paymentClient, evolutionApiClient, null, null, null);
+        this(appointmentRepository, paymentClient, evolutionApiClient, null, null, null, null);
+    }
+
+    public PaymentProcessingService(
+            AppointmentRepository appointmentRepository,
+            MercadoPagoPaymentClient paymentClient,
+            EvolutionApiClient evolutionApiClient,
+            ConversationSessionRepository sessionRepository,
+            TenantConfigRepository tenantConfigRepository,
+            ChatService chatService) {
+        this(appointmentRepository, paymentClient, evolutionApiClient, sessionRepository, tenantConfigRepository, chatService, null);
     }
 
     @Autowired
@@ -45,13 +57,15 @@ public class PaymentProcessingService {
             EvolutionApiClient evolutionApiClient,
             ConversationSessionRepository sessionRepository,
             TenantConfigRepository tenantConfigRepository,
-            ChatService chatService) {
+            ChatService chatService,
+            StudioAdminController studioAdminController) {
         this.appointmentRepository = appointmentRepository;
         this.paymentClient = paymentClient;
         this.evolutionApiClient = evolutionApiClient;
         this.sessionRepository = sessionRepository;
         this.tenantConfigRepository = tenantConfigRepository;
         this.chatService = chatService;
+        this.studioAdminController = studioAdminController;
     }
 
     @Transactional
@@ -114,9 +128,27 @@ public class PaymentProcessingService {
 
             evolutionApiClient.sendTextMessage(customerPhone, confirmationMessage);
 
-            if (sessionRepository != null && chatService != null) {
+            if (sessionRepository != null) {
                 sessionRepository.findByCustomer(appointment.getCustomer())
-                        .ifPresent(session -> chatService.recordBotMessage(session, appointment.getCustomer(), confirmationMessage));
+                        .ifPresent(session -> {
+                            if (appointment.getArtist() != null) {
+                                session.setAssignedUser(appointment.getArtist());
+                                session.setAssignedArtistName(appointment.getArtist().getName());
+                                sessionRepository.save(session);
+                            }
+                            if (chatService != null) {
+                                chatService.recordBotMessage(session, appointment.getCustomer(), confirmationMessage);
+                            }
+                        });
+            }
+
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "PAYMENT_RECEIVED",
+                        "Sinal PIX Confirmado!",
+                        "Pagamento de R$ " + appointment.getDepositAmount() + " aprovado para " + customerName + ".",
+                        customerPhone
+                );
             }
 
             return true;

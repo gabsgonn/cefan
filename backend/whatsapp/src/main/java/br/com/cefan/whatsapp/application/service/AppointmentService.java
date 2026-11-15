@@ -11,6 +11,7 @@ import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
 import br.com.cefan.whatsapp.domain.repository.AppointmentAuditLogRepository;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
+import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
 import br.com.cefan.whatsapp.domain.repository.CustomerRepository;
 import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -35,12 +36,21 @@ public class AppointmentService {
     private final CustomerRepository customerRepository;
     private final AppointmentAuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
+    private final ConversationSessionRepository sessionRepository;
 
     public AppointmentService(
             AppointmentRepository appointmentRepository,
             CustomerRepository customerRepository,
             AppointmentAuditLogRepository auditLogRepository) {
-        this(appointmentRepository, customerRepository, auditLogRepository, null);
+        this(appointmentRepository, customerRepository, auditLogRepository, null, null);
+    }
+
+    public AppointmentService(
+            AppointmentRepository appointmentRepository,
+            CustomerRepository customerRepository,
+            AppointmentAuditLogRepository auditLogRepository,
+            UserRepository userRepository) {
+        this(appointmentRepository, customerRepository, auditLogRepository, userRepository, null);
     }
 
     @Autowired
@@ -48,11 +58,13 @@ public class AppointmentService {
             AppointmentRepository appointmentRepository,
             CustomerRepository customerRepository,
             AppointmentAuditLogRepository auditLogRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            ConversationSessionRepository sessionRepository) {
         this.appointmentRepository = appointmentRepository;
         this.customerRepository = customerRepository;
         this.auditLogRepository = auditLogRepository;
         this.userRepository = userRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -137,6 +149,7 @@ public class AppointmentService {
                 .build();
 
         appointment = appointmentRepository.save(appointment);
+        syncCustomerSessionArtist(customer, artist);
         return AppointmentResponse.fromEntity(appointment);
     }
 
@@ -189,7 +202,19 @@ public class AppointmentService {
         }
 
         appointment = appointmentRepository.save(appointment);
+        syncCustomerSessionArtist(appointment.getCustomer(), appointment.getArtist());
         return AppointmentResponse.fromEntity(appointment);
+    }
+
+    private void syncCustomerSessionArtist(Customer customer, User artist) {
+        if (sessionRepository == null || customer == null || artist == null) {
+            return;
+        }
+        sessionRepository.findByCustomer(customer).ifPresent(session -> {
+            session.setAssignedUser(artist);
+            session.setAssignedArtistName(artist.getName());
+            sessionRepository.save(session);
+        });
     }
 
     private User getCurrentAuthenticatedUser() {

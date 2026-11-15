@@ -45,6 +45,22 @@ public class TenantConfig {
     @Builder.Default
     private BigDecimal minDepositAmount = new BigDecimal("50.00");
 
+    @Column(name = "pix_expiration_minutes", nullable = false)
+    @Builder.Default
+    private Integer pixExpirationMinutes = 120;
+
+    @Column(name = "opening_time", nullable = false, length = 5)
+    @Builder.Default
+    private String openingTime = "10:00";
+
+    @Column(name = "closing_time", nullable = false, length = 5)
+    @Builder.Default
+    private String closingTime = "20:00";
+
+    @Column(name = "working_days", nullable = false, length = 50)
+    @Builder.Default
+    private String workingDays = "SEG-SAB";
+
     @Column(name = "welcome_message", columnDefinition = "TEXT")
     private String welcomeMessage;
 
@@ -65,6 +81,9 @@ public class TenantConfig {
 
     @Column(name = "bot_reset_message", columnDefinition = "TEXT")
     private String botResetMessage;
+
+    @Column(name = "absence_message", columnDefinition = "TEXT")
+    private String absenceMessage;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -35,6 +35,14 @@ public class TenantConfigDto {
 
     private BigDecimal minDepositAmount;
 
+    private Integer pixExpirationMinutes;
+
+    private String openingTime;
+
+    private String closingTime;
+
+    private String workingDays;
+
     private String welcomeMessage;
 
     private String orcamentoIntroMessage;
@@ -49,6 +57,8 @@ public class TenantConfigDto {
 
     private String botResetMessage;
 
+    private String absenceMessage;
+
     public static TenantConfigDto fromEntity(TenantConfig entity) {
         return TenantConfigDto.builder()
                 .id(entity.getId())
@@ -58,6 +68,10 @@ public class TenantConfigDto {
                 .absorbCreditCardFees(entity.getAbsorbCreditCardFees())
                 .signalPercentage(entity.getSignalPercentage() != null ? entity.getSignalPercentage() : new BigDecimal("30.00"))
                 .minDepositAmount(entity.getMinDepositAmount() != null ? entity.getMinDepositAmount() : new BigDecimal("50.00"))
+                .pixExpirationMinutes(entity.getPixExpirationMinutes() != null ? entity.getPixExpirationMinutes() : 120)
+                .openingTime(entity.getOpeningTime() != null ? entity.getOpeningTime() : "10:00")
+                .closingTime(entity.getClosingTime() != null ? entity.getClosingTime() : "20:00")
+                .workingDays(entity.getWorkingDays() != null ? entity.getWorkingDays() : "SEG-SAB")
                 .welcomeMessage(entity.getWelcomeMessage())
                 .orcamentoIntroMessage(entity.getOrcamentoIntroMessage())
                 .agendamentoIntroMessage(entity.getAgendamentoIntroMessage())
@@ -65,6 +79,7 @@ public class TenantConfigDto {
                 .pixConfirmedMessage(entity.getPixConfirmedMessage())
                 .humanTransferMessage(entity.getHumanTransferMessage())
                 .botResetMessage(entity.getBotResetMessage())
+                .absenceMessage(entity.getAbsenceMessage())
                 .build();
     }
 }

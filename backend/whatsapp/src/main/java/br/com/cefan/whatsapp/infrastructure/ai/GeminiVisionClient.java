@@ -1,10 +1,14 @@
 package br.com.cefan.whatsapp.infrastructure.ai;
 
+import br.com.cefan.whatsapp.domain.model.User;
+import br.com.cefan.whatsapp.domain.model.UserRole;
+import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.GeminiGenerateContentRequest;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.GeminiGenerateContentResponse;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.TattooAnalysisResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -21,15 +25,27 @@ public class GeminiVisionClient {
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
+    private final UserRepository userRepository;
 
+    public GeminiVisionClient(
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String baseUrl) {
+        this(objectMapper, apiKey, model, baseUrl, null);
+    }
+
+    @Autowired
     public GeminiVisionClient(
             ObjectMapper objectMapper,
             @Value("${gemini.api.key:}") String apiKey,
             @Value("${gemini.api.model:gemini-1.5-flash}") String model,
-            @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl) {
+            @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
+            UserRepository userRepository) {
         this.objectMapper = objectMapper;
         this.apiKey = (apiKey != null) ? apiKey.trim() : "";
         this.model = model;
+        this.userRepository = userRepository;
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .build();
@@ -106,18 +122,37 @@ public class GeminiVisionClient {
     private String buildPrompt(String customerNotes) {
         StringBuilder sb = new StringBuilder();
         sb.append("Você é o orçamentista especialista com IA do renomado estúdio 'Vício Tattoo CWB'.\n");
-        sb.append("A equipe do estúdio é composta por 11 profissionais especialistas:\n");
-        sb.append("1. Carlos Silveira (Especialista em Realismo Preto e Cinza, Retratos)\n");
-        sb.append("2. Mariana Rocha (Especialista em Fineline / Traço Fino e Florais Delicados)\n");
-        sb.append("3. Lucas Blade (Especialista em Blackwork Pesado, Geometria e Tribal)\n");
-        sb.append("4. Beatriz Lima (Especialista em Aquarela e Tatuagens Coloridas)\n");
-        sb.append("5. Rodrigo Old School (Especialista em Tradicional Americano / Old School e Bold Line)\n");
-        sb.append("6. Felipe Neo (Especialista em Neo Traditional e New School)\n");
-        sb.append("7. Camila Pontilhismo (Especialista em Pontilhismo e Mandalas)\n");
-        sb.append("8. Gabriel Oriental (Especialista em Irezumi e Tatuagem Oriental)\n");
-        sb.append("9. Larissa Piercing (Body Piercer, Perfurações Corporais e Microdermal)\n");
-        sb.append("10. Thiago Dark (Especialista em Dark Art, Gótico e Lettering Sombrio)\n");
-        sb.append("11. Julia Piercer (Body Piercer, Aplicação de Joias em Titânio e Ouro)\n\n");
+
+        List<User> activeArtists = (userRepository != null)
+                ? userRepository.findAll().stream()
+                        .filter(u -> u.getRole() == UserRole.ARTIST && Boolean.TRUE.equals(u.getIsActive()))
+                        .toList()
+                : List.of();
+
+        if (!activeArtists.isEmpty()) {
+            sb.append("A equipe do estúdio é composta por ").append(activeArtists.size()).append(" profissionais especialistas:\n");
+            int idx = 1;
+            for (User artist : activeArtists) {
+                String spec = (artist.getSpecialties() != null && !artist.getSpecialties().isBlank())
+                        ? artist.getSpecialties()
+                        : "Tatuagem Autoral";
+                sb.append(idx++).append(". ").append(artist.getName()).append(" (Especialista em ").append(spec).append(")\n");
+            }
+            sb.append("\n");
+        } else {
+            sb.append("A equipe do estúdio é composta por 11 profissionais especialistas:\n");
+            sb.append("1. Carlos Silveira (Especialista em Realismo Preto e Cinza, Retratos)\n");
+            sb.append("2. Mariana Rocha (Especialista em Fineline / Traço Fino e Florais Delicados)\n");
+            sb.append("3. Lucas Blade (Especialista em Blackwork Pesado, Geometria e Tribal)\n");
+            sb.append("4. Beatriz Lima (Especialista em Aquarela e Tatuagens Coloridas)\n");
+            sb.append("5. Rodrigo Old School (Especialista em Tradicional Americano / Old School e Bold Line)\n");
+            sb.append("6. Felipe Neo (Especialista em Neo Traditional e New School)\n");
+            sb.append("7. Camila Pontilhismo (Especialista em Pontilhismo e Mandalas)\n");
+            sb.append("8. Gabriel Oriental (Especialista em Irezumi e Tatuagem Oriental)\n");
+            sb.append("9. Larissa Piercing (Body Piercer, Perfurações Corporais e Microdermal)\n");
+            sb.append("10. Thiago Dark (Especialista em Dark Art, Gótico e Lettering Sombrio)\n");
+            sb.append("11. Julia Piercer (Body Piercer, Aplicação de Joias em Titânio e Ouro)\n\n");
+        }
 
         sb.append("Analise a imagem da tatuagem ou arte de referência enviada pelo cliente ");
         if (customerNotes != null && !customerNotes.isBlank()) {
