@@ -201,6 +201,47 @@ body {
   }
 }
 
+/* Modal Animations */
+@keyframes modalBackdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalBackdropFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modalContentScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modalContentScaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+}
+
 /* Modal styles */
 .modal-backdrop {
   position: fixed;
@@ -212,6 +253,12 @@ body {
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
+  animation: modalBackdropFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+
+  &.closing {
+    animation: modalBackdropFadeOut 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+    pointer-events: none;
+  }
 }
 
 .modal-content {
@@ -225,6 +272,12 @@ body {
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+  animation: modalContentScaleIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+
+  &.closing {
+    animation: modalContentScaleOut 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
 }
 
 .modal-header {
@@ -246,9 +299,17 @@ body {
     font-size: 1.5rem;
     cursor: pointer;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s, color 0.15s;
 
     &:hover {
       color: var(--text-primary);
+      background-color: rgba(255, 255, 255, 0.06);
     }
   }
 }
@@ -264,6 +325,10 @@ body {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.75rem;
+
+  &:empty {
+    display: none;
+  }
 }
 
 @media (max-width: 640px) {

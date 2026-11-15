@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ProfessionalService } from '../../core/services/professional.service';
 import { Professional, RateType } from '../../core/models/professional.model';
+import { ModalComponent } from '../../shared/components/modal/modal.component';
 
 @Component({
   selector: 'app-profissionais',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModalComponent],
   template: `
     <div class="page-container">
       <div class="page-header">
@@ -181,93 +182,92 @@ import { Professional, RateType } from '../../core/models/professional.model';
       </div>
 
       <!-- Modal: Criar / Editar Profissional -->
-      <div class="modal-backdrop" *ngIf="showModal()" (click)="closeModal()">
-        <div class="modal-content" (click)="$event.stopPropagation()">
-          <div class="modal-header">
-            <h3>{{ isEditing() ? 'Editar Profissional' : 'Novo Profissional' }}</h3>
-            <button class="close-btn" (click)="closeModal()">×</button>
-          </div>
+      <app-modal
+        #profModal
+        [isOpen]="showModal()"
+        (closed)="closeModal()"
+        [isDirty]="isFormDirty()"
+        [title]="isEditing() ? 'Editar Profissional' : 'Novo Profissional'"
+        maxWidth="600px">
+        <div modal-body>
+          <div class="form-grid">
+            <div class="input-group">
+              <label>Nome Completo *</label>
+              <input type="text" [(ngModel)]="currentForm.name" placeholder="Ex: Carlos Eduardo" />
+            </div>
 
-          <div class="modal-body">
-            <div class="form-grid">
-              <div class="input-group">
-                <label>Nome Completo *</label>
-                <input type="text" [(ngModel)]="currentForm.name" placeholder="Ex: Carlos Eduardo" />
-              </div>
+            <div class="input-group">
+              <label>E-mail de Login *</label>
+              <input
+                type="email"
+                [(ngModel)]="currentForm.email"
+                [disabled]="isEditing()"
+                placeholder="carlos@viciotattoo.com"
+              />
+            </div>
 
-              <div class="input-group">
-                <label>E-mail de Login *</label>
-                <input
-                  type="email"
-                  [(ngModel)]="currentForm.email"
-                  [disabled]="isEditing()"
-                  placeholder="carlos@viciotattoo.com"
-                />
-              </div>
+            <div class="input-group">
+              <label>Senha de Acesso {{ isEditing() ? '(Deixe em branco para manter)' : '*' }}</label>
+              <input
+                type="password"
+                [(ngModel)]="currentForm.password"
+                placeholder="••••••••"
+              />
+            </div>
 
-              <div class="input-group">
-                <label>Senha de Acesso {{ isEditing() ? '(Deixe em branco para manter)' : '*' }}</label>
-                <input
-                  type="password"
-                  [(ngModel)]="currentForm.password"
-                  placeholder="••••••••"
-                />
-              </div>
+            <div class="input-group">
+              <label>Telefone / WhatsApp</label>
+              <input type="text" [(ngModel)]="currentForm.phone" placeholder="5511988880001" />
+            </div>
 
-              <div class="input-group">
-                <label>Telefone / WhatsApp</label>
-                <input type="text" [(ngModel)]="currentForm.phone" placeholder="5511988880001" />
-              </div>
+            <div class="input-group full-width">
+              <label>Especialidades & Estilos Dominantes *</label>
+              <input
+                type="text"
+                [(ngModel)]="currentForm.specialties"
+                placeholder="Ex: Fineline, Traço Fino, Minimalista"
+              />
+              <span class="hint">Usado pela IA do WhatsApp para recomendar o artista ao cliente pelo estilo da foto.</span>
+            </div>
 
-              <div class="input-group full-width">
-                <label>Especialidades & Estilos Dominantes *</label>
-                <input
-                  type="text"
-                  [(ngModel)]="currentForm.specialties"
-                  placeholder="Ex: Fineline, Traço Fino, Minimalista"
-                />
-                <span class="hint">Usado pela IA do WhatsApp para recomendar o artista ao cliente pelo estilo da foto.</span>
-              </div>
+            <div class="input-group">
+              <label>Modalidade de Taxa / Comissão</label>
+              <select [(ngModel)]="currentForm.artistRateType">
+                <option value="PERCENTAGE">Percentual de Comissão (%)</option>
+                <option value="HOURLY">Valor Fixo por Hora (R$)</option>
+              </select>
+            </div>
 
-              <div class="input-group">
-                <label>Modalidade de Taxa / Comissão</label>
-                <select [(ngModel)]="currentForm.artistRateType">
-                  <option value="PERCENTAGE">Percentual de Comissão (%)</option>
-                  <option value="HOURLY">Valor Fixo por Hora (R$)</option>
-                </select>
-              </div>
+            <div class="input-group">
+              <label>{{ currentForm.artistRateType === 'PERCENTAGE' ? 'Percentual (%)' : 'Valor Hora (R$)' }} *</label>
+              <input type="number" step="0.5" [(ngModel)]="currentForm.artistRateValue" />
+            </div>
 
-              <div class="input-group">
-                <label>{{ currentForm.artistRateType === 'PERCENTAGE' ? 'Percentual (%)' : 'Valor Hora (R$)' }} *</label>
-                <input type="number" step="0.5" [(ngModel)]="currentForm.artistRateValue" />
-              </div>
+            <div class="input-group">
+              <label>Reputação Inicial (0.0 a 5.0)</label>
+              <input type="number" step="0.1" min="1" max="5" [(ngModel)]="currentForm.reputation" />
+            </div>
 
-              <div class="input-group">
-                <label>Reputação Inicial (0.0 a 5.0)</label>
-                <input type="number" step="0.1" min="1" max="5" [(ngModel)]="currentForm.reputation" />
-              </div>
-
-              <div class="input-group">
-                <label>Status do Profissional</label>
-                <select [(ngModel)]="currentForm.isActive">
-                  <option [ngValue]="true">Ativo na Agenda</option>
-                  <option [ngValue]="false">Inativo / Afastado</option>
-                </select>
-              </div>
+            <div class="input-group">
+              <label>Status do Profissional</label>
+              <select [(ngModel)]="currentForm.isActive">
+                <option [ngValue]="true">Ativo na Agenda</option>
+                <option [ngValue]="false">Inativo / Afastado</option>
+              </select>
             </div>
           </div>
-
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="closeModal()">Cancelar</button>
-            <button
-              class="btn btn-primary"
-              [disabled]="saving() || !currentForm.name || !currentForm.email"
-              (click)="saveProfessional()">
-              {{ saving() ? 'Salvando...' : 'Salvar Profissional' }}
-            </button>
-          </div>
         </div>
-      </div>
+
+        <div modal-footer>
+          <button class="btn btn-secondary" (click)="profModal.requestClose()">Cancelar</button>
+          <button
+            class="btn btn-primary"
+            [disabled]="saving() || !currentForm.name || !currentForm.email"
+            (click)="saveProfessional()">
+            {{ saving() ? 'Salvando...' : 'Salvar Profissional' }}
+          </button>
+        </div>
+      </app-modal>
     </div>
   `,
   styles: [`
@@ -738,6 +738,13 @@ export class ProfissionaisComponent implements OnInit {
     });
   }
 
+  private initialFormState = '';
+
+  isFormDirty(): boolean {
+    if (!this.showModal()) return false;
+    return JSON.stringify(this.currentForm) !== this.initialFormState;
+  }
+
   openCreateModal(): void {
     this.isEditing.set(false);
     this.selectedId = null;
@@ -753,6 +760,7 @@ export class ProfissionaisComponent implements OnInit {
       reputation: 5.0,
       isActive: true
     };
+    this.initialFormState = JSON.stringify(this.currentForm);
     this.showModal.set(true);
   }
 
@@ -771,6 +779,7 @@ export class ProfissionaisComponent implements OnInit {
       reputation: prof.reputation || 5.0,
       isActive: prof.isActive
     };
+    this.initialFormState = JSON.stringify(this.currentForm);
     this.showModal.set(true);
   }
 
@@ -785,6 +794,7 @@ export class ProfissionaisComponent implements OnInit {
       this.professionalService.update(this.selectedId, this.currentForm).subscribe({
         next: (updated) => {
           this.saving.set(false);
+          this.initialFormState = JSON.stringify(this.currentForm);
           this.closeModal();
           this.professionals.update(list => list.map(p => p.id === updated.id ? updated : p));
           this.showToast('Profissional atualizado com sucesso!');
@@ -798,6 +808,7 @@ export class ProfissionaisComponent implements OnInit {
       this.professionalService.create(this.currentForm).subscribe({
         next: (created) => {
           this.saving.set(false);
+          this.initialFormState = JSON.stringify(this.currentForm);
           this.closeModal();
           this.professionals.update(list => [...list, created]);
           this.showToast('Profissional cadastrado com sucesso!');

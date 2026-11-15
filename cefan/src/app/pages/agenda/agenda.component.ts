@@ -9,6 +9,7 @@ import {
   CreateAppointmentRequest,
   UpdateAppointmentRequest
 } from '../../core/models/appointment.model';
+import { ModalComponent } from '../../shared/components/modal/modal.component';
 
 export interface CalendarDayColumn {
   date: Date;
@@ -21,7 +22,7 @@ export interface CalendarDayColumn {
 @Component({
   selector: 'app-agenda',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ModalComponent],
   template: `
     <div class="page-container">
       <!-- Page Header -->
@@ -334,177 +335,173 @@ export interface CalendarDayColumn {
       </div>
 
       <!-- MODAL: Reajuste de Valor com Auditoria Obrigatória -->
-      <div *ngIf="showEditModal()" class="modal-backdrop">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Reajustar Valor / Sessão</h3>
-            <button class="close-btn" (click)="showEditModal.set(false)">×</button>
-          </div>
-          <div class="modal-body" *ngIf="selectedAppointment() as apt">
-            <p class="modal-intro">
-              Cliente: <strong>{{ apt.customerName }}</strong>
-              <br>Valor atual cadastrado: <strong>R$ {{ apt.totalPrice | number:'1.2-2' }}</strong>
-            </p>
+      <app-modal
+        #editModal
+        [isOpen]="showEditModal()"
+        (closed)="showEditModal.set(false)"
+        [isDirty]="isEditFormDirty()"
+        title="Reajustar Valor / Sessão">
+        <div modal-body *ngIf="selectedAppointment() as apt">
+          <p class="modal-intro">
+            Cliente: <strong>{{ apt.customerName }}</strong>
+            <br>Valor atual cadastrado: <strong>R$ {{ apt.totalPrice | number:'1.2-2' }}</strong>
+          </p>
 
-            <div class="input-group">
-              <label>Novo Valor Total da Tatuagem (R$)</label>
-              <input type="number" step="10.00" [(ngModel)]="editForm.newPrice" placeholder="Ex: 450.00" />
-            </div>
-
-            <div class="input-group">
-              <label>Justificativa da Alteração (Obrigatório para Auditoria)</label>
-              <textarea
-                rows="3"
-                [(ngModel)]="editForm.reason"
-                placeholder="Ex: Cliente solicitou aumento das dimensões do desenho no início da sessão"
-              ></textarea>
-              <span class="hint">Essa justificativa é gravada permanentemente no log de auditoria fiscal e contábil do estúdio.</span>
-            </div>
+          <div class="input-group">
+            <label>Novo Valor Total da Tatuagem (R$)</label>
+            <input type="number" step="10.00" [(ngModel)]="editForm.newPrice" placeholder="Ex: 450.00" />
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="showEditModal.set(false)">Fechar</button>
-            <button
-              class="btn btn-primary"
-              [disabled]="saving() || !editForm.reason || editForm.newPrice == null"
-              (click)="saveAppointmentEdit()">
-              {{ saving() ? 'Salvando...' : 'Confirmar Reajuste' }}
-            </button>
+
+          <div class="input-group">
+            <label>Justificativa da Alteração (Obrigatório para Auditoria)</label>
+            <textarea
+              rows="3"
+              [(ngModel)]="editForm.reason"
+              placeholder="Ex: Cliente solicitou aumento das dimensões do desenho no início da sessão"
+            ></textarea>
+            <span class="hint">Essa justificativa é gravada permanentemente no log de auditoria fiscal e contábil do estúdio.</span>
           </div>
         </div>
-      </div>
+        <div modal-footer>
+          <button class="btn btn-secondary" (click)="editModal.requestClose()">Fechar</button>
+          <button
+            class="btn btn-primary"
+            [disabled]="saving() || !editForm.reason || editForm.newPrice == null"
+            (click)="saveAppointmentEdit()">
+            {{ saving() ? 'Salvando...' : 'Confirmar Reajuste' }}
+          </button>
+        </div>
+      </app-modal>
 
       <!-- MODAL: Novo Agendamento -->
-      <div *ngIf="showCreateModal()" class="modal-backdrop">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Novo Agendamento</h3>
-            <button class="close-btn" (click)="showCreateModal.set(false)">×</button>
+      <app-modal
+        #createModal
+        [isOpen]="showCreateModal()"
+        (closed)="showCreateModal.set(false)"
+        [isDirty]="isCreateFormDirty()"
+        title="Novo Agendamento">
+        <div modal-body>
+          <div class="input-group">
+            <label>Nome do Cliente *</label>
+            <input type="text" [(ngModel)]="createForm.customerName" placeholder="Ex: João da Silva" />
           </div>
-          <div class="modal-body">
+
+          <div class="input-group">
+            <label>Telefone / WhatsApp (com DDD) *</label>
+            <input type="text" [(ngModel)]="createForm.customerPhone" placeholder="Ex: 5511999998888" />
+          </div>
+
+          <div class="form-row">
             <div class="input-group">
-              <label>Nome do Cliente *</label>
-              <input type="text" [(ngModel)]="createForm.customerName" placeholder="Ex: João da Silva" />
+              <label>Data & Início *</label>
+              <input type="datetime-local" [(ngModel)]="createForm.scheduledStart" />
             </div>
-
             <div class="input-group">
-              <label>Telefone / WhatsApp (com DDD) *</label>
-              <input type="text" [(ngModel)]="createForm.customerPhone" placeholder="Ex: 5511999998888" />
-            </div>
-
-            <div class="form-row">
-              <div class="input-group">
-                <label>Data & Início *</label>
-                <input type="datetime-local" [(ngModel)]="createForm.scheduledStart" />
-              </div>
-              <div class="input-group">
-                <label>Término Estimado *</label>
-                <input type="datetime-local" [(ngModel)]="createForm.scheduledEnd" />
-              </div>
-            </div>
-
-            <div class="checkbox-group">
-              <label class="checkbox-label">
-                <input type="checkbox" [(ngModel)]="createForm.isTouchup" (change)="onTouchupToggled()" />
-                <span>É sessão de <strong>Retoque Gratuito</strong>? (Regra: R$ 0,00)</span>
-              </label>
-            </div>
-
-            <div class="form-row" *ngIf="!createForm.isTouchup">
-              <div class="input-group">
-                <label>Valor Total Estimado (R$)</label>
-                <input type="number" step="10" [(ngModel)]="createForm.totalPrice" (input)="onTotalPriceChanged()" />
-              </div>
-              <div class="input-group">
-                <label>Sinal Calculado (30% - R$)</label>
-                <input type="number" step="5" [(ngModel)]="createForm.depositAmount" />
-              </div>
+              <label>Término Estimado *</label>
+              <input type="datetime-local" [(ngModel)]="createForm.scheduledEnd" />
             </div>
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="showCreateModal.set(false)">Cancelar</button>
-            <button
-              class="btn btn-primary"
-              [disabled]="saving() || !createForm.customerName || !createForm.customerPhone || !createForm.scheduledStart"
-              (click)="saveNewAppointment()">
-              {{ saving() ? 'Cadastrando...' : 'Salvar Agendamento' }}
-            </button>
+
+          <div class="checkbox-group">
+            <label class="checkbox-label">
+              <input type="checkbox" [(ngModel)]="createForm.isTouchup" (change)="onTouchupToggled()" />
+              <span>É sessão de <strong>Retoque Gratuito</strong>? (Regra: R$ 0,00)</span>
+            </label>
+          </div>
+
+          <div class="form-row" *ngIf="!createForm.isTouchup">
+            <div class="input-group">
+              <label>Valor Total Estimado (R$)</label>
+              <input type="number" step="10" [(ngModel)]="createForm.totalPrice" (input)="onTotalPriceChanged()" />
+            </div>
+            <div class="input-group">
+              <label>Sinal Calculado (30% - R$)</label>
+              <input type="number" step="5" [(ngModel)]="createForm.depositAmount" />
+            </div>
           </div>
         </div>
-      </div>
+        <div modal-footer>
+          <button class="btn btn-secondary" (click)="createModal.requestClose()">Cancelar</button>
+          <button
+            class="btn btn-primary"
+            [disabled]="saving() || !createForm.customerName || !createForm.customerPhone || !createForm.scheduledStart"
+            (click)="saveNewAppointment()">
+            {{ saving() ? 'Cadastrando...' : 'Salvar Agendamento' }}
+          </button>
+        </div>
+      </app-modal>
 
       <!-- MODAL: PIX / Pagamento -->
-      <div *ngIf="showPixModal()" class="modal-backdrop">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Cobrança PIX Mercado Pago</h3>
-            <button class="close-btn" (click)="showPixModal.set(false)">×</button>
+      <app-modal
+        #pixModal
+        [isOpen]="showPixModal()"
+        (closed)="showPixModal.set(false)"
+        [isDirty]="false"
+        title="Cobrança PIX Mercado Pago">
+        <div modal-body *ngIf="selectedAppointment() as apt">
+          <p class="modal-intro">
+            Sinal pendente para <strong>{{ apt.customerName }}</strong>:
+            <br><strong class="pix-amount">R$ {{ (apt.depositAmount || 0) | number:'1.2-2' }}</strong>
+          </p>
+
+          <div *ngIf="apt.mpPixQrCodeBase64" class="qr-code-box" style="text-align: center; margin-bottom: 1rem;">
+            <img
+              [src]="apt.mpPixQrCodeBase64.startsWith('data:') ? apt.mpPixQrCodeBase64 : 'data:image/png;base64,' + apt.mpPixQrCodeBase64"
+              alt="QR Code PIX"
+              style="max-width: 200px; border-radius: 8px; background: #fff; padding: 8px;"
+            />
           </div>
-          <div class="modal-body" *ngIf="selectedAppointment() as apt">
-            <p class="modal-intro">
-              Sinal pendente para <strong>{{ apt.customerName }}</strong>:
-              <br><strong class="pix-amount">R$ {{ (apt.depositAmount || 0) | number:'1.2-2' }}</strong>
-            </p>
 
-            <div *ngIf="apt.mpPixQrCodeBase64" class="qr-code-box" style="text-align: center; margin-bottom: 1rem;">
-              <img
-                [src]="apt.mpPixQrCodeBase64.startsWith('data:') ? apt.mpPixQrCodeBase64 : 'data:image/png;base64,' + apt.mpPixQrCodeBase64"
-                alt="QR Code PIX"
-                style="max-width: 200px; border-radius: 8px; background: #fff; padding: 8px;"
-              />
-            </div>
-
-            <div *ngIf="apt.mpPixCopyPaste" class="input-group">
-              <label>Código PIX Copia e Cola:</label>
-              <textarea rows="3" readonly [value]="apt.mpPixCopyPaste" class="code-area"></textarea>
-              <button class="btn btn-secondary btn-sm" (click)="copyPixCode(apt.mpPixCopyPaste)">
-                Copiar Código PIX
-              </button>
-            </div>
-
-            <div *ngIf="apt.mpPaymentLink" class="payment-link-box">
-              <a [href]="apt.mpPaymentLink" target="_blank" class="btn btn-primary">
-                Abrir Link Mercado Pago
-              </a>
-            </div>
-
-            <div *ngIf="!apt.mpPixCopyPaste && !apt.mpPaymentLink" class="empty-pix">
-              <p>Nenhuma chave PIX ativa para este agendamento ou pagamento gerado offline.</p>
-            </div>
+          <div *ngIf="apt.mpPixCopyPaste" class="input-group">
+            <label>Código PIX Copia e Cola:</label>
+            <textarea rows="3" readonly [value]="apt.mpPixCopyPaste" class="code-area"></textarea>
+            <button class="btn btn-secondary btn-sm" (click)="copyPixCode(apt.mpPixCopyPaste)">
+              Copiar Código PIX
+            </button>
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="showPixModal.set(false)">Fechar</button>
+
+          <div *ngIf="apt.mpPaymentLink" class="payment-link-box">
+            <a [href]="apt.mpPaymentLink" target="_blank" class="btn btn-primary">
+              Abrir Link Mercado Pago
+            </a>
+          </div>
+
+          <div *ngIf="!apt.mpPixCopyPaste && !apt.mpPaymentLink" class="empty-pix">
+            <p>Nenhuma chave PIX ativa para este agendamento ou pagamento gerado offline.</p>
           </div>
         </div>
-      </div>
+        <div modal-footer>
+          <button class="btn btn-secondary" (click)="pixModal.requestClose()">Fechar</button>
+        </div>
+      </app-modal>
 
       <!-- MODAL: Histórico de Auditoria -->
-      <div *ngIf="showAuditModal()" class="modal-backdrop">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Histórico de Auditoria de Valores</h3>
-            <button class="close-btn" (click)="showAuditModal.set(false)">×</button>
+      <app-modal
+        #auditModal
+        [isOpen]="showAuditModal()"
+        (closed)="showAuditModal.set(false)"
+        [isDirty]="false"
+        title="Histórico de Auditoria de Valores">
+        <div modal-body>
+          <div *ngIf="auditLogs().length === 0" class="modal-intro">
+            Nenhum reajuste de valor registrado para este agendamento.
           </div>
-          <div class="modal-body">
-            <div *ngIf="auditLogs().length === 0" class="modal-intro">
-              Nenhum reajuste de valor registrado para este agendamento.
+          <div *ngFor="let log of auditLogs()" class="audit-log-item" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 0.75rem;">
+            <div style="font-size: 0.85rem; font-weight: 700;">
+              De R$ {{ log.oldValue | number:'1.2-2' }} → Para R$ {{ log.newValue | number:'1.2-2' }}
             </div>
-            <div *ngFor="let log of auditLogs()" class="audit-log-item" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 0.75rem;">
-              <div style="font-size: 0.85rem; font-weight: 700;">
-                De R$ {{ log.oldValue | number:'1.2-2' }} → Para R$ {{ log.newValue | number:'1.2-2' }}
-              </div>
-              <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                Motivo: {{ log.reason }}
-              </div>
-              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
-                Em: {{ formatDate(log.changedAt) }}
-              </div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">
+              Motivo: {{ log.reason }}
             </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="showAuditModal.set(false)">Fechar</button>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
+              Em: {{ formatDate(log.changedAt) }}
+            </div>
           </div>
         </div>
-      </div>
+        <div modal-footer>
+          <button class="btn btn-secondary" (click)="auditModal.requestClose()">Fechar</button>
+        </div>
+      </app-modal>
 
     </div>
   `,
@@ -1196,6 +1193,19 @@ export class AgendaComponent implements OnInit {
     depositAmount: 105
   };
 
+  private initialEditFormState = '';
+  private initialCreateFormState = '';
+
+  isEditFormDirty(): boolean {
+    if (!this.showEditModal()) return false;
+    return JSON.stringify(this.editForm) !== this.initialEditFormState;
+  }
+
+  isCreateFormDirty(): boolean {
+    if (!this.showCreateModal()) return false;
+    return JSON.stringify(this.createForm) !== this.initialCreateFormState;
+  }
+
   // Computed metrics
   readonly confirmedCount = computed(() =>
     this.appointments().filter(a => a.status === 'CONFIRMADO').length
@@ -1254,6 +1264,7 @@ export class AgendaComponent implements OnInit {
       newPrice: apt.totalPrice,
       reason: ''
     };
+    this.initialEditFormState = JSON.stringify(this.editForm);
     this.showEditModal.set(true);
   }
 
@@ -1275,6 +1286,7 @@ export class AgendaComponent implements OnInit {
     this.appointmentService.update(apt.id, updateReq).subscribe({
       next: (updated) => {
         this.saving.set(false);
+        this.initialEditFormState = JSON.stringify(this.editForm);
         this.showEditModal.set(false);
         this.showToast(`Valor atualizado com sucesso! Log de auditoria registrado.`);
         this.loadAppointments();
@@ -1304,6 +1316,7 @@ export class AgendaComponent implements OnInit {
       totalPrice: 350,
       depositAmount: 105
     };
+    this.initialCreateFormState = JSON.stringify(this.createForm);
     this.showCreateModal.set(true);
   }
 
@@ -1338,6 +1351,7 @@ export class AgendaComponent implements OnInit {
     this.appointmentService.create(req).subscribe({
       next: () => {
         this.saving.set(false);
+        this.initialCreateFormState = JSON.stringify(this.createForm);
         this.showCreateModal.set(false);
         this.showToast('Agendamento criado com sucesso!');
         this.loadAppointments();
@@ -1413,6 +1427,7 @@ export class AgendaComponent implements OnInit {
       totalPrice: 350,
       depositAmount: 105
     };
+    this.initialCreateFormState = JSON.stringify(this.createForm);
     this.showCreateModal.set(true);
   }
 
