@@ -29,6 +29,7 @@ RUN printf 'server {\n\
         proxy_set_header Connection "";\n\
         proxy_buffering off;\n\
         proxy_cache off;\n\
+        proxy_read_timeout 24h;\n\
     }\n\
 }\n' > /etc/nginx/conf.d/default.conf
 

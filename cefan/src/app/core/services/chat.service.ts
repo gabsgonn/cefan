@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ChatMessage } from '../models/appointment.model';
+import { AuthService } from './auth.service';
 
 export interface BotStatus {
   status: string;
@@ -15,6 +16,7 @@ export interface BotStatus {
 })
 export class ChatService {
   private readonly http = inject(HttpClient);
+  private readonly authService = inject(AuthService);
   private readonly apiRoot = '/api/v1';
 
   getMessages(sessionId: string): Observable<ChatMessage[]> {
@@ -27,7 +29,9 @@ export class ChatService {
 
   streamMessages(sessionId: string): Observable<ChatMessage> {
     return new Observable<ChatMessage>((observer) => {
-      const eventSource = new EventSource(`${this.apiRoot}/conversations/${sessionId}/stream`);
+      const token = this.authService.token();
+      const queryParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      const eventSource = new EventSource(`${this.apiRoot}/conversations/${sessionId}/stream${queryParam}`);
 
       eventSource.addEventListener('MESSAGE', (event: MessageEvent) => {
         try {

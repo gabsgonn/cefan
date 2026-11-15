@@ -65,6 +65,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         // Webhooks externos (Evolution API e Mercado Pago)
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
+                        // Streaming SSE em tempo real (EventSource não suporta headers HTTP customizados)
+                        .requestMatchers("/api/v1/conversations/*/stream", "/api/v1/conversations/stream", "/api/v1/notifications/stream").permitAll()
                         // Rotas de configuração restritas estritamente ao Dono (OWNER)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/tenant-configs/**").hasRole("OWNER")
                         .requestMatchers(HttpMethod.POST, "/api/v1/professionals/**").hasRole("OWNER")
