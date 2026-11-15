@@ -74,4 +74,58 @@ describe('ChatService', () => {
     expect(req.request.body).toEqual({ message: 'Olá! Podemos fazer seu orçamento agora.' });
     req.flush(reply);
   });
+
+  it('should assign artist, reset bot session, check status, reconnect and report issue', () => {
+    service.assignArtist('sess-1', 'art-1').subscribe();
+    const assignReq = httpMock.expectOne('/api/v1/conversations/sess-1/assign');
+    expect(assignReq.request.method).toBe('POST');
+    expect(assignReq.request.body).toEqual({ artistId: 'art-1' });
+    assignReq.flush(null);
+
+    service.resetBotSession('sess-1').subscribe();
+    const resetReq = httpMock.expectOne('/api/v1/conversations/sess-1/reset');
+    expect(resetReq.request.method).toBe('POST');
+    resetReq.flush(null);
+
+    service.getBotStatus().subscribe(status => {
+      expect(status.status).toBe('CONNECTED');
+      expect(status.postgresOnline).toBe(true);
+    });
+    const statusReq = httpMock.expectOne('/api/v1/bot/status');
+    expect(statusReq.request.method).toBe('GET');
+    statusReq.flush({
+      status: 'CONNECTED',
+      instance: 'cefan-studio',
+      webhookActive: true,
+      springBootOnline: true,
+      postgresOnline: true,
+      timestamp: '2026-11-15T10:00:00Z'
+    });
+
+    service.reconnectBot().subscribe(res => {
+      expect(res.status).toBe('CONNECTED');
+    });
+    const reconnectReq = httpMock.expectOne('/api/v1/bot/reconnect');
+    expect(reconnectReq.request.method).toBe('POST');
+    reconnectReq.flush({
+      status: 'CONNECTED',
+      restarted: true,
+      instance: 'cefan-studio',
+      message: 'Instância reiniciada!',
+      timestamp: '2026-11-15T10:01:00Z'
+    });
+
+    service.reportIssue({ description: 'Teste de diagnóstico', category: 'ORCAMENTO_IA', sessionId: 'sess-1' }).subscribe(res => {
+      expect(res.protocol).toBe('INC-123456');
+    });
+    const reportReq = httpMock.expectOne('/api/v1/bot/report-issue');
+    expect(reportReq.request.method).toBe('POST');
+    reportReq.flush({
+      protocol: 'INC-123456',
+      status: 'REPORTED',
+      category: 'ORCAMENTO_IA',
+      message: 'Registrado',
+      timestamp: '2026-11-15T10:02:00Z'
+    });
+  });
 });

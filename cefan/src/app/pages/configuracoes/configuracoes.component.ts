@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TenantConfigService } from '../../core/services/tenant-config.service';
 import { AppointmentService } from '../../core/services/appointment.service';
+import { ChatService, BotStatus } from '../../core/services/chat.service';
 import { TenantConfig } from '../../core/models/tenant-config.model';
 import { NotificationPreferences } from '../../core/models/appointment.model';
 
@@ -170,6 +171,41 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
               <input type="checkbox" [(ngModel)]="notifPrefs.notifyPaymentReceived" (change)="saveNotificationPrefs()" />
               <span class="slider round"></span>
             </label>
+          </div>
+
+          <div class="card-header" style="margin-top: 1.5rem;">
+            <h3>Central de Diagnóstico & Resiliência</h3>
+            <p>Monitoramento da infraestrutura do bot e conexão com o WhatsApp:</p>
+          </div>
+
+          <div class="simulation-list">
+            <div class="simulation-item">
+              <div class="sim-header">
+                <span class="sim-badge">🟢 Backend Spring Boot Core</span>
+                <span class="sim-price">{{ botStatus()?.springBootOnline !== false ? 'Online' : 'Offline' }}</span>
+              </div>
+              <div class="sim-header">
+                <span class="sim-badge">🟢 Banco de Dados PostgreSQL</span>
+                <span class="sim-price">{{ botStatus()?.postgresOnline !== false ? 'Online' : 'Offline' }}</span>
+              </div>
+              <div class="sim-header">
+                <span class="sim-badge">🟢 Evolution API / Instância ({{ botStatus()?.instance || 'cefan-studio' }})</span>
+                <span class="sim-price">{{ botStatus()?.status === 'CONNECTED' ? 'Conectada' : 'Reconectando' }}</span>
+              </div>
+              <div class="sim-header" style="margin-bottom: 0;">
+                <span class="sim-badge">🟢 Mercado Pago Webhook PIX</span>
+                <span class="sim-price">{{ botStatus()?.mercadoPagoWebhookActive !== false ? 'Ativo' : 'Inativo' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-footer" style="margin-top: 1rem;">
+            <button type="button" class="btn btn-secondary" [disabled]="testingConnection()" (click)="testWhatsAppConnection()">
+              {{ testingConnection() ? 'Verificando...' : 'Testar Conexão WhatsApp' }}
+            </button>
+            <button type="button" class="btn btn-primary" [disabled]="restartingBot()" (click)="restartWhatsAppBot()">
+              {{ restartingBot() ? 'Reiniciando...' : 'Reiniciar Bot WhatsApp' }}
+            </button>
           </div>
         </div>
       </div>
@@ -554,9 +590,13 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
 export class ConfiguracoesComponent implements OnInit {
   private readonly configService = inject(TenantConfigService);
   private readonly adminService = inject(AppointmentService);
+  private readonly chatService = inject(ChatService);
 
   readonly activeTab = signal<'FINANCIAL' | 'MESSAGES'>('FINANCIAL');
   readonly saving = signal<boolean>(false);
+  readonly testingConnection = signal<boolean>(false);
+  readonly restartingBot = signal<boolean>(false);
+  readonly botStatus = signal<BotStatus | null>(null);
   readonly feedbackMessage = signal<string | null>(null);
   readonly feedbackType = signal<'success' | 'error'>('success');
 
@@ -584,6 +624,44 @@ export class ConfiguracoesComponent implements OnInit {
   ngOnInit(): void {
     this.loadConfig();
     this.loadNotificationPrefs();
+    this.loadBotHealth();
+  }
+
+  loadBotHealth(): void {
+    this.chatService.getBotStatus().subscribe({
+      next: (status) => this.botStatus.set(status),
+      error: () => {}
+    });
+  }
+
+  testWhatsAppConnection(): void {
+    this.testingConnection.set(true);
+    this.chatService.getBotStatus().subscribe({
+      next: (status) => {
+        this.testingConnection.set(false);
+        this.botStatus.set(status);
+        this.showToast(`Conexão WhatsApp (${status.instance}) verificada e operacional!`);
+      },
+      error: () => {
+        this.testingConnection.set(false);
+        this.showToast('Falha ao consultar status da conexão WhatsApp.', 'error');
+      }
+    });
+  }
+
+  restartWhatsAppBot(): void {
+    this.restartingBot.set(true);
+    this.chatService.reconnectBot().subscribe({
+      next: (res) => {
+        this.restartingBot.set(false);
+        this.loadBotHealth();
+        this.showToast(res.message || 'Instância do Bot WhatsApp reiniciada com sucesso!');
+      },
+      error: () => {
+        this.restartingBot.set(false);
+        this.showToast('Erro ao reiniciar instância do WhatsApp.', 'error');
+      }
+    });
   }
 
   loadNotificationPrefs(): void {

@@ -8,6 +8,27 @@ export interface BotStatus {
   status: string;
   instance: string;
   webhookActive: boolean;
+  springBootOnline?: boolean;
+  postgresOnline?: boolean;
+  evolutionApiConnected?: boolean;
+  evolutionLiveReachable?: boolean;
+  mercadoPagoWebhookActive?: boolean;
+  timestamp: string;
+}
+
+export interface BotReconnectResponse {
+  status: string;
+  restarted: boolean;
+  instance: string;
+  message: string;
+  timestamp: string;
+}
+
+export interface BotIssueReportResponse {
+  protocol: string;
+  status: string;
+  category: string;
+  message: string;
   timestamp: string;
 }
 
@@ -29,6 +50,9 @@ export class ChatService {
 
   streamMessages(sessionId: string): Observable<ChatMessage> {
     return new Observable<ChatMessage>((observer) => {
+      if (typeof EventSource === 'undefined') {
+        return;
+      }
       const token = this.authService.token();
       const queryParam = token ? `?token=${encodeURIComponent(token)}` : '';
       const eventSource = new EventSource(`${this.apiRoot}/conversations/${sessionId}/stream${queryParam}`);
@@ -53,6 +77,34 @@ export class ChatService {
     });
   }
 
+  streamAllMessages(): Observable<ChatMessage> {
+    return new Observable<ChatMessage>((observer) => {
+      if (typeof EventSource === 'undefined') {
+        return;
+      }
+      const token = this.authService.token();
+      const queryParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      const eventSource = new EventSource(`${this.apiRoot}/conversations/stream${queryParam}`);
+
+      eventSource.addEventListener('MESSAGE', (event: MessageEvent) => {
+        try {
+          const chatMsg: ChatMessage = JSON.parse(event.data);
+          observer.next(chatMsg);
+        } catch (e) {
+          console.warn('Erro ao decodificar mensagem SSE global:', e);
+        }
+      });
+
+      eventSource.onerror = (error) => {
+        console.debug('SSE Global Live Chat reconectando...', error);
+      };
+
+      return () => {
+        eventSource.close();
+      };
+    });
+  }
+
   assignArtist(sessionId: string, artistId: string | null): Observable<void> {
     return this.http.post<void>(`${this.apiRoot}/conversations/${sessionId}/assign`, { artistId });
   }
@@ -63,5 +115,13 @@ export class ChatService {
 
   getBotStatus(): Observable<BotStatus> {
     return this.http.get<BotStatus>(`${this.apiRoot}/bot/status`);
+  }
+
+  reconnectBot(): Observable<BotReconnectResponse> {
+    return this.http.post<BotReconnectResponse>(`${this.apiRoot}/bot/reconnect`, {});
+  }
+
+  reportIssue(payload: { description: string; category?: string; sessionId?: string }): Observable<BotIssueReportResponse> {
+    return this.http.post<BotIssueReportResponse>(`${this.apiRoot}/bot/report-issue`, payload);
   }
 }
