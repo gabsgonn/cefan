@@ -6,6 +6,10 @@ export interface TenantConfig {
   absorbCreditCardFees: boolean;
   signalPercentage?: number;
   minDepositAmount?: number;
+  pixExpirationMinutes?: number;
+  openingTime?: string;
+  closingTime?: string;
+  workingDays?: string;
   welcomeMessage?: string;
   orcamentoIntroMessage?: string;
   agendamentoIntroMessage?: string;
@@ -13,4 +17,5 @@ export interface TenantConfig {
   pixConfirmedMessage?: string;
   humanTransferMessage?: string;
   botResetMessage?: string;
+  absenceMessage?: string;
 }

@@ -93,6 +93,38 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="input-group">
+              <label>Expiração do Sinal PIX (Minutos)</label>
+              <input type="number" step="15" min="15" [(ngModel)]="config.pixExpirationMinutes" placeholder="120" />
+              <span class="hint">Tempo limite para pagamento do sinal antes de liberar a vaga (Padrão: 120 min / 2h).</span>
+            </div>
+
+            <div class="input-group">
+              <label>Dias de Funcionamento do Estúdio</label>
+              <select [(ngModel)]="config.workingDays">
+                <option value="SEG-SAB">Segunda a Sábado (Seg-Sáb)</option>
+                <option value="SEG-SEX">Segunda a Sexta (Seg-Sex)</option>
+                <option value="SEG-DOM">Todos os Dias (Seg-Dom)</option>
+              </select>
+              <span class="hint">Grade de dias considerada pelo bot ao sugerir e validar agendamentos.</span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="input-group">
+              <label>Horário de Abertura</label>
+              <input type="time" [(ngModel)]="config.openingTime" />
+              <span class="hint">Início do expediente diário (Padrão: 10:00).</span>
+            </div>
+
+            <div class="input-group">
+              <label>Horário de Fechamento</label>
+              <input type="time" [(ngModel)]="config.closingTime" />
+              <span class="hint">Término do expediente diário (Padrão: 20:00).</span>
+            </div>
+          </div>
+
           <div class="toggle-container">
             <div class="toggle-text">
               <span class="toggle-title">Absorver Taxas do Gateway (Mercado Pago)</span>
@@ -244,15 +276,27 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         </div>
 
         <div class="template-group">
-          <label>5. Confirmação de Sinal Pago via PIX</label>
+          <label>5. Instruções de Pré-Agendamento & Chave PIX</label>
+          <textarea rows="3" [(ngModel)]="config.pixPaymentMessage" class="template-textarea"></textarea>
+          <span class="hint">Cabeçalho enviado junto com os dados do pré-agendamento e código PIX Copia e Cola.</span>
+        </div>
+
+        <div class="template-group">
+          <label>6. Confirmação de Sinal Pago via PIX</label>
           <textarea rows="3" [(ngModel)]="config.pixConfirmedMessage" class="template-textarea"></textarea>
           <span class="hint">Enviada automaticamente quando o webhook do Mercado Pago acusa pagamento aprovado.</span>
         </div>
 
         <div class="template-group">
-          <label>6. Mensagem de Reinício de Conversa (Reset Bot)</label>
+          <label>7. Mensagem de Reinício de Conversa (Reset Bot)</label>
           <textarea rows="2" [(ngModel)]="config.botResetMessage" class="template-textarea"></textarea>
           <span class="hint">Enviada quando o operador clica no botão "Reset Bot".</span>
+        </div>
+
+        <div class="template-group">
+          <label>8. Mensagem de Ausência / Fora de Expediente</label>
+          <textarea rows="3" [(ngModel)]="config.absenceMessage" class="template-textarea"></textarea>
+          <span class="hint">Aviso sobre o horário de funcionamento do estúdio ({{ config.workingDays || 'SEG-SAB' }}, {{ config.openingTime || '10:00' }} às {{ config.closingTime || '20:00' }}).</span>
         </div>
 
         <div class="card-footer">
@@ -375,7 +419,7 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         margin-bottom: 0.4rem;
       }
 
-      input {
+      input, select {
         width: 100%;
         padding: 0.65rem 0.85rem;
         background-color: var(--bg-surface);
@@ -607,12 +651,18 @@ export class ConfiguracoesComponent implements OnInit {
     absorbCreditCardFees: true,
     signalPercentage: 30,
     minDepositAmount: 50.00,
+    pixExpirationMinutes: 120,
+    openingTime: '10:00',
+    closingTime: '20:00',
+    workingDays: 'SEG-SAB',
     welcomeMessage: '👋 Olá! Seja muito bem-vindo(a) ao *Vício Tattoo CWB*!\nEu sou a assistente virtual e estou aqui para agilizar seu atendimento:\n\n1️⃣ *Solicitar Orçamento com IA* (Envie foto da ideia)\n2️⃣ *Agendar Horário / Ver Disponibilidade*\n3️⃣ *Falar com um Tatuador / Dúvidas*\n4️⃣ *Nossos Artistas e Portfólio*\n\nDigite o número da opção desejada:',
     orcamentoIntroMessage: '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto ou imagem de referência* da tatuagem que você deseja fazer.\n\nSe preferir, adicione também:\n- Tamanho aproximado em centímetros (ex: 10cm)\n- Local do corpo pretendido (ex: antebraço, ombro)',
     agendamentoIntroMessage: '📅 *Agendamento de Sessão*\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)',
+    pixPaymentMessage: '🗓️ *Pré-Agendamento Criado!*\n\nBloqueamos seu horário na grade. Para confirmar, efetue o pagamento do sinal de 30% via PIX copia e cola abaixo.',
     humanTransferMessage: '💬 *Transbordo para Atendimento Humano*\n\nUm dos nossos tatuadores foi notificado e já vai assumir seu atendimento por aqui em instantes. Aguarde só um momento!',
     pixConfirmedMessage: '🎉 *Agendamento Confirmado com Sucesso!*\n\nSeu pagamento do sinal foi aprovado pelo estúdio. Nos vemos no Vício Tattoo! ⚡',
-    botResetMessage: '🔄 Conversa reiniciada. Como podemos te ajudar agora?'
+    botResetMessage: '🔄 Conversa reiniciada. Como podemos te ajudar agora?',
+    absenceMessage: '🌙 *Estúdio Fora do Horário de Expediente*\n\nNosso horário de funcionamento é de Segunda a Sábado, das 10h às 20h.\nSeu atendimento já foi registrado e você pode continuar utilizando nosso assistente virtual para orçamentos e pré-agendamentos normais!'
   };
 
   notifPrefs: NotificationPreferences = {
@@ -698,17 +748,23 @@ export class ConfiguracoesComponent implements OnInit {
           this.config = {
             id: data.id,
             studioName: data.studioName || 'Vício Tattoo CWB',
-            defaultHourlyRate: Number(data.defaultHourlyRate) || 150.00,
-            fixedSetupCost: Number(data.fixedSetupCost) || 50.00,
+            defaultHourlyRate: data.defaultHourlyRate != null ? Number(data.defaultHourlyRate) : 150.00,
+            fixedSetupCost: data.fixedSetupCost != null ? Number(data.fixedSetupCost) : 50.00,
             absorbCreditCardFees: data.absorbCreditCardFees ?? true,
-            signalPercentage: Number(data.signalPercentage) || 30,
-            minDepositAmount: Number(data.minDepositAmount) || 50.00,
+            signalPercentage: data.signalPercentage != null ? Number(data.signalPercentage) : 30,
+            minDepositAmount: data.minDepositAmount != null ? Number(data.minDepositAmount) : 50.00,
+            pixExpirationMinutes: data.pixExpirationMinutes != null ? Number(data.pixExpirationMinutes) : 120,
+            openingTime: data.openingTime || '10:00',
+            closingTime: data.closingTime || '20:00',
+            workingDays: data.workingDays || 'SEG-SAB',
             welcomeMessage: data.welcomeMessage || this.config.welcomeMessage,
             orcamentoIntroMessage: data.orcamentoIntroMessage || this.config.orcamentoIntroMessage,
             agendamentoIntroMessage: data.agendamentoIntroMessage || this.config.agendamentoIntroMessage,
+            pixPaymentMessage: data.pixPaymentMessage || this.config.pixPaymentMessage,
             humanTransferMessage: data.humanTransferMessage || this.config.humanTransferMessage,
             pixConfirmedMessage: data.pixConfirmedMessage || this.config.pixConfirmedMessage,
-            botResetMessage: data.botResetMessage || this.config.botResetMessage
+            botResetMessage: data.botResetMessage || this.config.botResetMessage,
+            absenceMessage: data.absenceMessage || this.config.absenceMessage
           };
         }
       },
@@ -729,7 +785,8 @@ export class ConfiguracoesComponent implements OnInit {
           defaultHourlyRate: Number(res.defaultHourlyRate),
           fixedSetupCost: Number(res.fixedSetupCost),
           signalPercentage: Number(res.signalPercentage),
-          minDepositAmount: Number(res.minDepositAmount)
+          minDepositAmount: Number(res.minDepositAmount),
+          pixExpirationMinutes: Number(res.pixExpirationMinutes) || 120
         };
         this.showToast('Configurações salvas no banco com sucesso!');
       },
@@ -744,9 +801,11 @@ export class ConfiguracoesComponent implements OnInit {
     this.config.welcomeMessage = '👋 Olá! Seja muito bem-vindo(a) ao *Vício Tattoo CWB*!\nEu sou a assistente virtual e estou aqui para agilizar seu atendimento:\n\n1️⃣ *Solicitar Orçamento com IA* (Envie foto da ideia)\n2️⃣ *Agendar Horário / Ver Disponibilidade*\n3️⃣ *Falar com um Tatuador / Dúvidas*\n4️⃣ *Nossos Artistas e Portfólio*\n\nDigite o número da opção desejada:';
     this.config.orcamentoIntroMessage = '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto ou imagem de referência* da tatuagem que você deseja fazer.\n\nSe preferir, adicione também:\n- Tamanho aproximado em centímetros (ex: 10cm)\n- Local do corpo pretendido (ex: antebraço, ombro)';
     this.config.agendamentoIntroMessage = '📅 *Agendamento de Sessão*\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)';
+    this.config.pixPaymentMessage = '🗓️ *Pré-Agendamento Criado!*\n\nBloqueamos seu horário na grade. Para confirmar, efetue o pagamento do sinal de 30% via PIX copia e cola abaixo.';
     this.config.humanTransferMessage = '💬 *Transbordo para Atendimento Humano*\n\nUm dos nossos tatuadores foi notificado e já vai assumir seu atendimento por aqui em instantes. Aguarde só um momento!';
     this.config.pixConfirmedMessage = '🎉 *Agendamento Confirmado com Sucesso!*\n\nSeu pagamento do sinal foi aprovado pelo estúdio. Nos vemos no Vício Tattoo! ⚡';
     this.config.botResetMessage = '🔄 Conversa reiniciada. Como podemos te ajudar agora?';
+    this.config.absenceMessage = '🌙 *Estúdio Fora do Horário de Expediente*\n\nNosso horário de funcionamento é de Segunda a Sábado, das 10h às 20h.\nSeu atendimento já foi registrado e você pode continuar utilizando nosso assistente virtual para orçamentos e pré-agendamentos normais!';
     this.showToast('Textos restaurados para os padrões sugeridos. Clique em "Salvar" para confirmar.');
   }
 

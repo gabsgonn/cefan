@@ -65,6 +65,7 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
           <input
             type="text"
             [(ngModel)]="searchQuery"
+            (ngModelChange)="onSearchChange($event)"
             placeholder="Buscar por nome, especialidade ou estilo..."
           />
         </div>
@@ -678,6 +679,7 @@ export class ProfissionaisComponent implements OnInit {
   readonly loading = signal<boolean>(true);
   readonly saving = signal<boolean>(false);
   readonly filterStatus = signal<'ACTIVE' | 'ALL'>('ACTIVE');
+  readonly searchSignal = signal<string>('');
   searchQuery = '';
 
   readonly feedbackMessage = signal<string | null>(null);
@@ -709,7 +711,7 @@ export class ProfissionaisComponent implements OnInit {
     if (this.filterStatus() === 'ACTIVE') {
       list = list.filter(p => p.isActive);
     }
-    const q = this.searchQuery.trim().toLowerCase();
+    const q = (this.searchSignal() || this.searchQuery).trim().toLowerCase();
     if (q) {
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
@@ -719,6 +721,11 @@ export class ProfissionaisComponent implements OnInit {
     }
     return list;
   });
+
+  onSearchChange(query: string): void {
+    this.searchQuery = query;
+    this.searchSignal.set(query || '');
+  }
 
   ngOnInit(): void {
     this.loadProfessionals();
