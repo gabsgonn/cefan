@@ -202,4 +202,88 @@ class AgendamentoStateHandlerTest {
         assertNotNull(slotHoje);
         assertTrue(slotHoje.getHour() >= 8 && slotHoje.getHour() <= 20);
     }
+
+    @Test
+    void shouldRespectOperatingHoursWorkingDaysAndCustomPixExpiration() {
+        br.com.cefan.whatsapp.domain.model.TenantConfig config = br.com.cefan.whatsapp.domain.model.TenantConfig.builder()
+                .studioName("Vício Tattoo CWB")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .signalPercentage(new BigDecimal("30.00"))
+                .minDepositAmount(new BigDecimal("50.00"))
+                .pixExpirationMinutes(60)
+                .openingTime("10:00")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .pixPaymentMessage("⚡ Reserva expressa Vício Tattoo!")
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(java.util.List.of(config));
+
+        MercadoPagoPaymentResponse mpResponse = MercadoPagoPaymentResponse.builder()
+                .id(777666L)
+                .status("pending")
+                .transactionAmount(new BigDecimal("120.00"))
+                .pointOfInteraction(MercadoPagoPaymentResponse.PointOfInteraction.builder()
+                        .transactionData(MercadoPagoPaymentResponse.TransactionData.builder()
+                                .qrCode("000201PIX60MIN")
+                                .build())
+                        .build())
+                .build();
+        when(paymentClient.createPixPayment(any(), any(), any(), any(), any())).thenReturn(mpResponse);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        // Solicita no domingo às 08h -> deve avançar para segunda-feira (SEG-SAB) às 10h (openingTime)
+        handler.handle(customer, session, webhook, "Quero agendar no domingo às 8h");
+
+        ArgumentCaptor<Appointment> appointmentCaptor = ArgumentCaptor.forClass(Appointment.class);
+        verify(appointmentRepository).save(appointmentCaptor.capture());
+
+        Appointment saved = appointmentCaptor.getValue();
+        assertEquals(java.time.DayOfWeek.MONDAY, saved.getScheduledStart().getDayOfWeek());
+        assertEquals(10, saved.getScheduledStart().getHour());
+
+        // Verifica expiração parametrizada de 60 minutos e cabeçalho customizado
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511955555555"), messageCaptor.capture());
+        String msg = messageCaptor.getValue();
+        assertTrue(msg.contains("Reserva expressa Vício Tattoo!"));
+        assertTrue(msg.contains("60 minutos"));
+        assertTrue(msg.contains("000201PIX60MIN"));
+    }
+
+    @Test
+    void shouldRespectFractionalOperatingHoursAndMinutesAfterClosingOrBeforeOpening() {
+        br.com.cefan.whatsapp.domain.model.TenantConfig config = br.com.cefan.whatsapp.domain.model.TenantConfig.builder()
+                .studioName("Vício Tattoo CWB")
+                .openingTime("10:30")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .build();
+
+        // 1. Solicita sexta às 20:30 (após fechamento às 20:00) -> avança para sábado às 10:30
+        OffsetDateTime afterClosing = handler.parseRequestedSlot("Quero agendar na sexta às 20:30", config);
+        assertEquals(java.time.DayOfWeek.SATURDAY, afterClosing.getDayOfWeek());
+        assertEquals(10, afterClosing.getHour());
+        assertEquals(30, afterClosing.getMinute());
+
+        // 2. Solicita sexta às 10:00 (antes da abertura às 10:30) -> ajusta para sexta às 10:30
+        OffsetDateTime beforeOpening = handler.parseRequestedSlot("Quero agendar na sexta às 10:00", config);
+        assertEquals(java.time.DayOfWeek.FRIDAY, beforeOpening.getDayOfWeek());
+        assertEquals(10, beforeOpening.getHour());
+        assertEquals(30, beforeOpening.getMinute());
+
+        // 3. Solicita sexta às 22h -> avança para sábado às 10:30
+        OffsetDateTime lateNight = handler.parseRequestedSlot("Quero agendar na sexta às 22h", config);
+        assertEquals(java.time.DayOfWeek.SATURDAY, lateNight.getDayOfWeek());
+        assertEquals(10, lateNight.getHour());
+        assertEquals(30, lateNight.getMinute());
+
+        // 4. Solicita sexta às 7h -> ajusta para sexta às 10:30
+        OffsetDateTime earlyMorning = handler.parseRequestedSlot("Quero agendar na sexta às 7h", config);
+        assertEquals(java.time.DayOfWeek.FRIDAY, earlyMorning.getDayOfWeek());
+        assertEquals(10, earlyMorning.getHour());
+        assertEquals(30, earlyMorning.getMinute());
+    }
 }

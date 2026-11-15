@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.api.controller.StudioAdminController;
 import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
@@ -26,12 +27,21 @@ public class MenuStateHandler implements ConversationStateHandler {
     private final ChatService chatService;
     private final TenantConfigRepository tenantConfigRepository;
     private final UserRepository userRepository;
+    private final StudioAdminController studioAdminController;
 
     public MenuStateHandler(
             EvolutionApiClient evolutionApiClient,
             ChatService chatService,
             TenantConfigRepository tenantConfigRepository) {
-        this(evolutionApiClient, chatService, tenantConfigRepository, null);
+        this(evolutionApiClient, chatService, tenantConfigRepository, null, null);
+    }
+
+    public MenuStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            ChatService chatService,
+            TenantConfigRepository tenantConfigRepository,
+            UserRepository userRepository) {
+        this(evolutionApiClient, chatService, tenantConfigRepository, userRepository, null);
     }
 
     @Autowired
@@ -39,11 +49,13 @@ public class MenuStateHandler implements ConversationStateHandler {
             EvolutionApiClient evolutionApiClient,
             ChatService chatService,
             TenantConfigRepository tenantConfigRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            StudioAdminController studioAdminController) {
         this.evolutionApiClient = evolutionApiClient;
         this.chatService = chatService;
         this.tenantConfigRepository = tenantConfigRepository;
         this.userRepository = userRepository;
+        this.studioAdminController = studioAdminController;
     }
 
     @Override
@@ -58,7 +70,7 @@ public class MenuStateHandler implements ConversationStateHandler {
 
         if (input.equals("1") || input.contains("orçamento") || input.contains("orcamento")) {
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
-            String customTemplate = (config != null && config.getOrcamentoIntroMessage() != null)
+            String customTemplate = (config != null && config.getOrcamentoIntroMessage() != null && !config.getOrcamentoIntroMessage().isBlank())
                     ? config.getOrcamentoIntroMessage()
                     : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga:\n• O local do corpo onde deseja tatuar\n• O tamanho aproximado em centímetros (ex: 10cm x 5cm)";
 
@@ -69,7 +81,7 @@ public class MenuStateHandler implements ConversationStateHandler {
             chatService.recordBotMessage(session, customer, reply);
         } else if (input.equals("2") || input.contains("agendar") || input.contains("agendamento")) {
             session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
-            String customTemplate = (config != null && config.getAgendamentoIntroMessage() != null)
+            String customTemplate = (config != null && config.getAgendamentoIntroMessage() != null && !config.getAgendamentoIntroMessage().isBlank())
                     ? config.getAgendamentoIntroMessage()
                     : "Vamos iniciar seu agendamento.\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)";
 
@@ -80,15 +92,24 @@ public class MenuStateHandler implements ConversationStateHandler {
             chatService.recordBotMessage(session, customer, reply);
         } else if (input.equals("3") || input.contains("humano") || input.contains("tatuador") || input.contains("falar")) {
             session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
-            String customTemplate = (config != null && config.getHumanTransferMessage() != null)
+            String customTemplate = (config != null && config.getHumanTransferMessage() != null && !config.getHumanTransferMessage().isBlank())
                     ? config.getHumanTransferMessage()
                     : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!";
+            String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(config);
 
-            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                    customer.getName(), customTemplate);
+            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    customer.getName(), customTemplate, absenceNotice);
 
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
             chatService.recordBotMessage(session, customer, reply);
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "HUMAN_REQUEST",
+                        "Aguardando Tatuador",
+                        customer.getName() + " solicitou atendimento humano no WhatsApp.",
+                        customer.getPhone()
+                );
+            }
         } else if (input.equals("4") || input.contains("artista") || input.contains("equipe") || input.contains("portfólio") || input.contains("portfolio")) {
             String portfolioReply = buildArtistsPortfolioMessage(customer);
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), portfolioReply);
@@ -134,7 +155,7 @@ public class MenuStateHandler implements ConversationStateHandler {
 
     public void sendWelcomeMenu(Customer customer, ConversationSession session, String instance) {
         TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
-        String menu = (config != null && config.getWelcomeMessage() != null)
+        String baseMenu = (config != null && config.getWelcomeMessage() != null && !config.getWelcomeMessage().isBlank())
                 ? config.getWelcomeMessage()
                 : String.format(
                 "Olá, %s! 🎨 Bem-vindo ao *Vício Tattoo*!\n\n" +
@@ -145,6 +166,7 @@ public class MenuStateHandler implements ConversationStateHandler {
                 "👉 _Digite o número da opção desejada._",
                 customer.getName()
         );
+        String menu = baseMenu + AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(config);
 
         evolutionApiClient.sendTextMessage(instance, customer.getPhone(), menu);
         if (session != null) {

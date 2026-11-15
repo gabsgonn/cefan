@@ -195,6 +195,12 @@ class OrcamentoStateHandlerTest {
 
     @Test
     void shouldTransitionToSchedulingWhenUserSends2() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .agendamentoIntroMessage("Informe o tatuador e data desejada na grade do Vício Tattoo:")
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
         EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
         webhook.setInstance("cefan-studio");
         EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
@@ -208,6 +214,6 @@ class OrcamentoStateHandlerTest {
         assertEquals(ConversationState.AGENDAMENTO_SELECAO_DATA, session.getCurrentState());
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
-        assertTrue(messageCaptor.getValue().contains("agendamento"));
+        assertTrue(messageCaptor.getValue().contains("Informe o tatuador e data desejada na grade do Vício Tattoo:"));
     }
 }

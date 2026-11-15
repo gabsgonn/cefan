@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.api.controller.StudioAdminController;
 import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.Appointment;
@@ -19,13 +20,14 @@ import br.com.cefan.whatsapp.infrastructure.mercadopago.MercadoPagoPaymentClient
 import br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -35,7 +37,6 @@ import java.util.regex.Pattern;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class AgendamentoStateHandler implements ConversationStateHandler {
 
     private final EvolutionApiClient evolutionApiClient;
@@ -45,6 +46,38 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
     private final ChatService chatService;
     private final TenantConfigRepository tenantConfigRepository;
     private final UserRepository userRepository;
+    private final StudioAdminController studioAdminController;
+
+    public AgendamentoStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            AppointmentRepository appointmentRepository,
+            MercadoPagoPaymentClient paymentClient,
+            ObjectMapper objectMapper,
+            ChatService chatService,
+            TenantConfigRepository tenantConfigRepository,
+            UserRepository userRepository) {
+        this(evolutionApiClient, appointmentRepository, paymentClient, objectMapper, chatService, tenantConfigRepository, userRepository, null);
+    }
+
+    @Autowired
+    public AgendamentoStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            AppointmentRepository appointmentRepository,
+            MercadoPagoPaymentClient paymentClient,
+            ObjectMapper objectMapper,
+            ChatService chatService,
+            TenantConfigRepository tenantConfigRepository,
+            UserRepository userRepository,
+            StudioAdminController studioAdminController) {
+        this.evolutionApiClient = evolutionApiClient;
+        this.appointmentRepository = appointmentRepository;
+        this.paymentClient = paymentClient;
+        this.objectMapper = objectMapper;
+        this.chatService = chatService;
+        this.tenantConfigRepository = tenantConfigRepository;
+        this.userRepository = userRepository;
+        this.studioAdminController = studioAdminController;
+    }
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm", Locale.forLanguageTag("pt-BR"));
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2})[/.-](\\d{1,2})");
@@ -71,10 +104,19 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             String customTemplate = (tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
                     ? tenantConfig.getHumanTransferMessage()
                     : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!";
-            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                    customer.getName(), customTemplate);
+            String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig);
+            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    customer.getName(), customTemplate, absenceNotice);
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
             chatService.recordBotMessage(session, customer, reply);
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "HUMAN_REQUEST",
+                        "Aguardando Tatuador",
+                        customer.getName() + " solicitou atendimento humano no WhatsApp.",
+                        customer.getPhone()
+                );
+            }
             return;
         }
 
@@ -95,12 +137,16 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
         User assignedArtist = resolveArtist(messageText, session.getContextData());
         String artistName = (assignedArtist != null) ? assignedArtist.getName() : "Equipe Vício Tattoo";
 
-        // 2. Calcula data inteligente e verifica disponibilidade de slots
-        OffsetDateTime requestedSlot = parseRequestedSlot(messageText);
-        OffsetDateTime scheduledStart = resolveAvailableSlot(requestedSlot, assignedArtist);
+        // 2. Calcula data inteligente e verifica disponibilidade de slots (respeitando horário de funcionamento do estúdio)
+        OffsetDateTime requestedSlot = parseRequestedSlot(messageText, tenantConfig);
+        OffsetDateTime scheduledStart = resolveAvailableSlot(requestedSlot, assignedArtist, tenantConfig);
         boolean wasConflictAdjusted = !scheduledStart.isEqual(requestedSlot);
         OffsetDateTime scheduledEnd = scheduledStart.plusHours(2);
-        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(2);
+
+        int expirationMinutes = (tenantConfig != null && tenantConfig.getPixExpirationMinutes() != null && tenantConfig.getPixExpirationMinutes() > 0)
+                ? tenantConfig.getPixExpirationMinutes()
+                : 120;
+        OffsetDateTime expiresAt = OffsetDateTime.now().plusMinutes(expirationMinutes);
 
         // 3. Determina valor total e valor do sinal a partir do contextData e regras de estúdio
         BigDecimal totalPrice = extractPriceFromContext(session.getContextData());
@@ -162,25 +208,40 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                         requestedSlot.format(DATE_FORMATTER), artistName)
                 : "";
 
+        String expirationLabel = (expirationMinutes == 120)
+                ? "2 horas"
+                : (expirationMinutes % 60 == 0 && expirationMinutes > 60
+                        ? (expirationMinutes / 60) + " horas (" + expirationMinutes + " minutos)"
+                        : expirationMinutes + " minutos");
+
+        String rawPixHeader = (tenantConfig != null && tenantConfig.getPixPaymentMessage() != null && !tenantConfig.getPixPaymentMessage().isBlank())
+                ? tenantConfig.getPixPaymentMessage().trim()
+                : "";
+        String headerTitle = rawPixHeader.toLowerCase().contains("pré-agendamento criado") || rawPixHeader.toLowerCase().contains("pre-agendamento criado")
+                ? rawPixHeader + "\n\n"
+                : "🗓️ *Pré-Agendamento Criado!* 🗓️\n\n" + (rawPixHeader.isEmpty() ? "" : rawPixHeader + "\n\n");
+
         String reply = String.format(
-                "🗓️ *Pré-Agendamento Criado!* 🗓️\n\n" +
+                "%s" +
                 "%s" +
                 "Olá, %s! Bloqueamos seu horário com sucesso:\n" +
                 "📅 *Data da Sessão:* %s\n" +
                 "👨‍🎨 *Profissional:* %s\n" +
                 "💰 *Sinal de Reserva:* R$ %s\n" +
                 "💵 *Saldo Restante:* R$ %s (pago no estúdio no dia da tattoo)\n\n" +
-                "⏳ *Atenção:* Seu horário fica reservado por *2 horas*. Para confirmar a vaga, efetue o pagamento do sinal via PIX Copia e Cola:\n\n" +
+                "⏳ *Atenção:* Seu horário fica reservado por *%s*. Para confirmar a vaga, efetue o pagamento do sinal via PIX Copia e Cola:\n\n" +
                 "🔑 *Código Pix:*\n" +
                 "%s\n\n" +
                 "Assim que o pagamento for identificado, confirmaremos sua vaga automaticamente! ✨\n\n" +
                 "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
+                headerTitle,
                 conflictNotice,
                 customer.getName(),
                 dateFormatted,
                 artistName,
                 depositAmount,
                 remainingAmount,
+                expirationLabel,
                 pixCopyPaste != null ? pixCopyPaste : "Chave PIX temporariamente indisponível. Fale com o tatuador digitando 3."
         );
 
@@ -223,6 +284,10 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
     }
 
     OffsetDateTime parseRequestedSlot(String messageText) {
+        return parseRequestedSlot(messageText, false);
+    }
+
+    private OffsetDateTime parseRequestedSlot(String messageText, boolean allowAnyHour) {
         String lower = (messageText != null) ? messageText.toLowerCase() : "";
         OffsetDateTime now = OffsetDateTime.now();
         OffsetDateTime target = now.plusDays(2).withHour(14).withMinute(0).withSecond(0).withNano(0);
@@ -241,7 +306,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
         if (hourMatcher.find()) {
             try {
                 int parsedHour = Integer.parseInt(hourMatcher.group(1));
-                if (parsedHour >= 8 && parsedHour <= 21) {
+                if (allowAnyHour ? (parsedHour >= 0 && parsedHour <= 23) : (parsedHour >= 8 && parsedHour <= 21)) {
                     hour = parsedHour;
                     hasExplicitHour = true;
                 }
@@ -260,7 +325,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
         } else if (lower.contains("hoje")) {
             int candidateHour = hasExplicitHour ? hour : Math.max(now.getHour() + 2, hour);
             if (candidateHour > 20 || candidateHour < now.getHour() || (candidateHour == now.getHour() && minute <= now.getMinute())) {
-                int nextDayHour = (hasExplicitHour && hour >= 8 && hour <= 20) ? hour : 14;
+                int nextDayHour = (hasExplicitHour && (allowAnyHour || (hour >= 8 && hour <= 20))) ? hour : 14;
                 target = now.plusDays(1).withHour(nextDayHour).withMinute(minute).withSecond(0).withNano(0);
             } else {
                 target = now.withHour(candidateHour).withMinute(minute).withSecond(0).withNano(0);
@@ -274,6 +339,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             else if (lower.contains("quinta")) dow = DayOfWeek.THURSDAY;
             else if (lower.contains("sexta")) dow = DayOfWeek.FRIDAY;
             else if (lower.contains("sábado") || lower.contains("sabado")) dow = DayOfWeek.SATURDAY;
+            else if (lower.contains("domingo")) dow = DayOfWeek.SUNDAY;
 
             if (dow != null) {
                 target = now;
@@ -304,10 +370,98 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
         return target;
     }
 
+    OffsetDateTime parseRequestedSlot(String messageText, TenantConfig tenantConfig) {
+        OffsetDateTime target = parseRequestedSlot(messageText, tenantConfig != null);
+        if (tenantConfig == null) {
+            return target;
+        }
+        return adjustToOperatingSchedule(target, tenantConfig);
+    }
+
+    private OffsetDateTime adjustToOperatingSchedule(OffsetDateTime slot, TenantConfig config) {
+        if (config == null) {
+            return slot;
+        }
+        LocalTime openTime = parseLocalTime(config.getOpeningTime(), LocalTime.of(10, 0));
+        LocalTime closeTime = parseLocalTime(config.getClosingTime(), LocalTime.of(20, 0));
+        String workingDays = config.getWorkingDays() != null ? config.getWorkingDays().trim().toUpperCase() : "SEG-SAB";
+
+        OffsetDateTime adjusted = slot;
+        LocalTime slotTime = adjusted.toLocalTime().withSecond(0).withNano(0);
+        if (slotTime.isBefore(openTime)) {
+            adjusted = adjusted.withHour(openTime.getHour()).withMinute(openTime.getMinute()).withSecond(0).withNano(0);
+        } else if (slotTime.isAfter(closeTime)) {
+            adjusted = adjusted.plusDays(1).withHour(openTime.getHour()).withMinute(openTime.getMinute()).withSecond(0).withNano(0);
+        }
+
+        for (int i = 0; i < 7; i++) {
+            DayOfWeek dow = adjusted.getDayOfWeek();
+            boolean closedOnSunday = !"SEG-DOM".equals(workingDays) && dow == DayOfWeek.SUNDAY;
+            boolean closedOnSaturday = "SEG-SEX".equals(workingDays) && dow == DayOfWeek.SATURDAY;
+            if (closedOnSunday || closedOnSaturday) {
+                adjusted = adjusted.plusDays(1);
+            } else {
+                break;
+            }
+        }
+        return adjusted;
+    }
+
+    public static LocalTime parseLocalTime(String timeStr, LocalTime fallback) {
+        if (timeStr == null || timeStr.isBlank()) {
+            return fallback;
+        }
+        try {
+            String[] parts = timeStr.trim().split(":");
+            int h = Integer.parseInt(parts[0].trim());
+            int m = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 0;
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+                return LocalTime.of(h, m);
+            }
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
+    public static boolean isOutsideOperatingHours(OffsetDateTime dateTime, TenantConfig config) {
+        if (config == null || dateTime == null) {
+            return false;
+        }
+        LocalTime openTime = parseLocalTime(config.getOpeningTime(), LocalTime.of(10, 0));
+        LocalTime closeTime = parseLocalTime(config.getClosingTime(), LocalTime.of(20, 0));
+        String workingDays = config.getWorkingDays() != null ? config.getWorkingDays().trim().toUpperCase() : "SEG-SAB";
+
+        DayOfWeek dow = dateTime.getDayOfWeek();
+        boolean closedOnSunday = !"SEG-DOM".equals(workingDays) && dow == DayOfWeek.SUNDAY;
+        boolean closedOnSaturday = "SEG-SEX".equals(workingDays) && dow == DayOfWeek.SATURDAY;
+        if (closedOnSunday || closedOnSaturday) {
+            return true;
+        }
+
+        LocalTime current = dateTime.toLocalTime().withSecond(0).withNano(0);
+        return current.isBefore(openTime) || current.isAfter(closeTime);
+    }
+
+    public static String buildAbsenceNoticeIfOutsideHours(TenantConfig config) {
+        if (config == null || config.getAbsenceMessage() == null || config.getAbsenceMessage().isBlank()) {
+            return "";
+        }
+        if (isOutsideOperatingHours(OffsetDateTime.now(), config)) {
+            return "\n\n" + config.getAbsenceMessage().trim();
+        }
+        return "";
+    }
+
     private OffsetDateTime resolveAvailableSlot(OffsetDateTime target, User artist) {
+        return resolveAvailableSlot(target, artist, null);
+    }
+
+    private OffsetDateTime resolveAvailableSlot(OffsetDateTime target, User artist, TenantConfig config) {
         if (artist == null) {
             return target;
         }
+
+        LocalTime openTime = config != null ? parseLocalTime(config.getOpeningTime(), LocalTime.of(9, 0)) : LocalTime.of(9, 0);
+        LocalTime closeTime = config != null ? parseLocalTime(config.getClosingTime(), LocalTime.of(20, 0)) : LocalTime.of(20, 0);
 
         OffsetDateTime candidate = target;
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -330,8 +484,22 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 return candidate;
             }
             candidate = candidate.plusHours(3);
-            if (candidate.getHour() > 20 || candidate.getHour() < 9) {
-                candidate = candidate.plusDays(1).withHour(14).withMinute(0).withSecond(0).withNano(0);
+            LocalTime candidateTime = candidate.toLocalTime().withSecond(0).withNano(0);
+            if (candidateTime.isAfter(closeTime) || candidateTime.isBefore(openTime)) {
+                LocalTime nextDayStart = (config != null && config.getOpeningTime() != null && !config.getOpeningTime().isBlank())
+                        ? openTime
+                        : LocalTime.of(14, 0);
+                if (nextDayStart.isAfter(closeTime)) {
+                    nextDayStart = openTime;
+                }
+                candidate = candidate.plusDays(1)
+                        .withHour(nextDayStart.getHour())
+                        .withMinute(nextDayStart.getMinute())
+                        .withSecond(0)
+                        .withNano(0);
+            }
+            if (config != null) {
+                candidate = adjustToOperatingSchedule(candidate, config);
             }
         }
         return candidate;

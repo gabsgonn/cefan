@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.statemachine.handler;
 
+import br.com.cefan.whatsapp.api.controller.StudioAdminController;
 import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
@@ -12,8 +13,8 @@ import br.com.cefan.whatsapp.infrastructure.ai.dto.TattooAnalysisResult;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -24,7 +25,6 @@ import java.util.Optional;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class OrcamentoStateHandler implements ConversationStateHandler {
 
     private final EvolutionApiClient evolutionApiClient;
@@ -32,6 +32,32 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
     private final TenantConfigRepository tenantConfigRepository;
     private final ObjectMapper objectMapper;
     private final ChatService chatService;
+    private final StudioAdminController studioAdminController;
+
+    public OrcamentoStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            GeminiVisionClient geminiVisionClient,
+            TenantConfigRepository tenantConfigRepository,
+            ObjectMapper objectMapper,
+            ChatService chatService) {
+        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, null);
+    }
+
+    @Autowired
+    public OrcamentoStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            GeminiVisionClient geminiVisionClient,
+            TenantConfigRepository tenantConfigRepository,
+            ObjectMapper objectMapper,
+            ChatService chatService,
+            StudioAdminController studioAdminController) {
+        this.evolutionApiClient = evolutionApiClient;
+        this.geminiVisionClient = geminiVisionClient;
+        this.tenantConfigRepository = tenantConfigRepository;
+        this.objectMapper = objectMapper;
+        this.chatService = chatService;
+        this.studioAdminController = studioAdminController;
+    }
 
     @Override
     public ConversationState getSupportedState() {
@@ -137,29 +163,48 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         } else {
             // Cliente enviou apenas texto sem imagem
             String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
+            TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
 
             if (input.equals("3") || input.contains("tatuador") || input.contains("humano") || input.contains("falar")) {
                 session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+                String customTemplate = (config != null && config.getHumanTransferMessage() != null && !config.getHumanTransferMessage().isBlank())
+                        ? config.getHumanTransferMessage()
+                        : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.";
+                String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(config);
                 String reply = String.format(
                         "Entendido, %s! 👨‍🎨\n\n" +
-                        "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.\n\n" +
+                        "%s%s\n\n" +
                         "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                        customer.getName()
+                        customer.getName(),
+                        customTemplate,
+                        absenceNotice
                 );
                 evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
                 chatService.recordBotMessage(session, customer, reply);
+                if (studioAdminController != null) {
+                    studioAdminController.publishNotification(
+                            "HUMAN_REQUEST",
+                            "Aguardando Tatuador",
+                            customer.getName() + " solicitou atendimento humano no WhatsApp.",
+                            customer.getPhone()
+                    );
+                }
                 return;
             }
 
             if (input.equals("2") || input.contains("agendar") || input.contains("agendamento")) {
                 session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
+                String customTemplate = (config != null && config.getAgendamentoIntroMessage() != null && !config.getAgendamentoIntroMessage().isBlank())
+                        ? config.getAgendamentoIntroMessage()
+                        : "Vamos iniciar seu agendamento com base no seu orçamento.\n\n" +
+                          "Nossa equipe conta com 11 artistas especialistas. Por favor, me informe:\n" +
+                          "1. O tatuador de sua preferência (ou digite *qualquer* se preferir o especialista indicado)\n" +
+                          "2. A data ou dia da semana desejado (Ex: sexta-feira à tarde, ou dia 20/11)";
                 String reply = String.format(
-                        "Ótimo, %s! 🗓️ Vamos iniciar seu agendamento com base no seu orçamento.\n\n" +
-                        "Nossa equipe conta com 11 artistas especialistas. Por favor, me informe:\n" +
-                        "1. O tatuador de sua preferência (ou digite *qualquer* se preferir o especialista indicado)\n" +
-                        "2. A data ou dia da semana desejado (Ex: sexta-feira à tarde, ou dia 20/11)\n\n" +
+                        "Ótimo, %s! 🗓️ %s\n\n" +
                         "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
-                        customer.getName()
+                        customer.getName(),
+                        customTemplate
                 );
                 evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
                 chatService.recordBotMessage(session, customer, reply);
