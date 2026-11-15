@@ -6,21 +6,45 @@ import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
+import br.com.cefan.whatsapp.domain.model.User;
+import br.com.cefan.whatsapp.domain.model.UserRole;
 import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
+import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class MenuStateHandler implements ConversationStateHandler {
 
     private final EvolutionApiClient evolutionApiClient;
     private final ChatService chatService;
     private final TenantConfigRepository tenantConfigRepository;
+    private final UserRepository userRepository;
+
+    public MenuStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            ChatService chatService,
+            TenantConfigRepository tenantConfigRepository) {
+        this(evolutionApiClient, chatService, tenantConfigRepository, null);
+    }
+
+    @Autowired
+    public MenuStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            ChatService chatService,
+            TenantConfigRepository tenantConfigRepository,
+            UserRepository userRepository) {
+        this.evolutionApiClient = evolutionApiClient;
+        this.chatService = chatService;
+        this.tenantConfigRepository = tenantConfigRepository;
+        this.userRepository = userRepository;
+    }
 
     @Override
     public ConversationState getSupportedState() {
@@ -65,9 +89,47 @@ public class MenuStateHandler implements ConversationStateHandler {
 
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
             chatService.recordBotMessage(session, customer, reply);
+        } else if (input.equals("4") || input.contains("artista") || input.contains("equipe") || input.contains("portfólio") || input.contains("portfolio")) {
+            String portfolioReply = buildArtistsPortfolioMessage(customer);
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), portfolioReply);
+            chatService.recordBotMessage(session, customer, portfolioReply);
         } else {
             sendWelcomeMenu(customer, session, webhook.getInstance());
         }
+    }
+
+    private String buildArtistsPortfolioMessage(Customer customer) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("🌟 *Equipe de Especialistas - Vício Tattoo CWB* 🌟\n\nOlá, %s! Conheça nossos artistas residentes:\n\n", customer.getName()));
+
+        List<User> artists = (userRepository != null)
+                ? userRepository.findAll().stream()
+                        .filter(u -> u.getRole() == UserRole.ARTIST && Boolean.TRUE.equals(u.getIsActive()))
+                        .toList()
+                : List.of();
+
+        if (!artists.isEmpty()) {
+            for (User artist : artists) {
+                String spec = (artist.getSpecialties() != null && !artist.getSpecialties().isBlank())
+                        ? artist.getSpecialties()
+                        : "Tatuagem Autoral";
+                String stars = (artist.getReputation() != null) ? "⭐ " + artist.getReputation() : "⭐ 5.0";
+                sb.append(String.format("• *%s* (%s) — _%s_\n", artist.getName(), stars, spec));
+            }
+        } else {
+            sb.append("• *Carlos Silveira* (⭐ 4.9) — _Realismo Preto e Cinza, Retratos_\n");
+            sb.append("• *Mariana Rocha* (⭐ 5.0) — _Fineline, Traço Fino, Florais_\n");
+            sb.append("• *Lucas Blade* (⭐ 4.8) — _Blackwork, Geometria, Tribal_\n");
+            sb.append("• *Beatriz Lima* (⭐ 4.9) — _Aquarela, Colorido_\n");
+            sb.append("• *Rodrigo Old School* (⭐ 4.9) — _Tradicional, Old School_\n");
+            sb.append("• *Larissa & Julia* (⭐ 5.0) — _Body Piercing & Joias em Titânio_\n");
+        }
+
+        sb.append("\n━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("👉 Digite *1* para *Solicitar Orçamento com IA*\n");
+        sb.append("👉 Digite *2* para *Agendar Horário*\n");
+        sb.append("👉 Digite *3* para *Falar com um Tatuador*");
+        return sb.toString();
     }
 
     public void sendWelcomeMenu(Customer customer, ConversationSession session, String instance) {

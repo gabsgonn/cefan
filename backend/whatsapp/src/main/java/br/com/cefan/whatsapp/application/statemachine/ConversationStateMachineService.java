@@ -59,12 +59,24 @@ public class ConversationStateMachineService {
                 });
 
         // 1. Registra mensagem recebida do cliente no histórico de chat
+        String mediaUrl = null;
+        String mimeType = webhook.extractImageMimeType();
+        if (hasImage) {
+            String rawBase64 = webhook.extractBase64();
+            if (rawBase64 != null && !rawBase64.isBlank()) {
+                mediaUrl = rawBase64.startsWith("data:") || rawBase64.startsWith("http")
+                        ? rawBase64
+                        : "data:" + (mimeType != null ? mimeType : "image/jpeg") + ";base64," + rawBase64.trim();
+            } else {
+                mediaUrl = "[Mídia/Imagem]";
+            }
+        }
         chatService.recordIncomingMessage(
                 session,
                 customer,
                 messageText != null ? messageText : "[Imagem recebida]",
-                hasImage ? "[Mídia/Imagem]" : null,
-                webhook.extractImageMimeType()
+                mediaUrl,
+                mimeType
         );
 
         // 2. Verificação de expiração por inatividade (24 horas)
@@ -87,7 +99,13 @@ public class ConversationStateMachineService {
             return;
         }
 
-        // 4. Execução do handler do estado atual
+        // 4. Se o cliente já enviou uma imagem diretamente no MENU, encaminha direto para o orçamento com IA
+        if (session.getCurrentState() == ConversationState.MENU && hasImage) {
+            log.info("Imagem recebida diretamente no estado MENU do cliente [{}]. Encaminhando para ORCAMENTO_AGUARDANDO_FOTO.", customer.getPhone());
+            session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
+        }
+
+        // 5. Execução do handler do estado atual
         ConversationStateHandler handler = handlers.get(session.getCurrentState());
         if (handler != null) {
             handler.handle(customer, session, webhook, messageText);

@@ -59,6 +59,14 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
             // 2. Análise com IA de Visão (Gemini Vision)
             String mimeType = webhook.extractImageMimeType();
+            String referenceImageUrl = null;
+            if (base64Image != null && !base64Image.isBlank()) {
+                referenceImageUrl = base64Image.startsWith("data:") || base64Image.startsWith("http")
+                        ? base64Image.trim()
+                        : "data:" + (mimeType != null ? mimeType : "image/jpeg") + ";base64," + base64Image.trim();
+                chatService.attachMediaToLatestCustomerMessage(session.getId(), referenceImageUrl, mimeType);
+            }
+
             TattooAnalysisResult analysis = geminiVisionClient.analyzeTattoo(base64Image, mimeType, messageText);
 
             // 3. Obtenção de parâmetros de precificação do estúdio
@@ -81,7 +89,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             BigDecimal maxPrice = basePrice.multiply(BigDecimal.valueOf(1.15)).setScale(0, RoundingMode.HALF_UP);
 
             // 4. Salva os dados de contexto na sessão
-            saveContextData(session, analysis, basePrice, minPrice, maxPrice);
+            saveContextData(session, analysis, basePrice, minPrice, maxPrice, referenceImageUrl);
 
             // 5. Montagem da resposta para o WhatsApp
             String hoursFormatted = (analysis.getEstimatedHours() != null)
@@ -172,7 +180,8 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
     }
 
     private void saveContextData(ConversationSession session, TattooAnalysisResult analysis,
-                                 BigDecimal basePrice, BigDecimal minPrice, BigDecimal maxPrice) {
+                                 BigDecimal basePrice, BigDecimal minPrice, BigDecimal maxPrice,
+                                 String referenceImageUrl) {
         try {
             Map<String, Object> context = new HashMap<>();
             context.put("style", analysis.getStyle());
@@ -186,6 +195,9 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             context.put("basePrice", basePrice);
             context.put("minPrice", minPrice);
             context.put("maxPrice", maxPrice);
+            if (referenceImageUrl != null && !referenceImageUrl.isBlank()) {
+                context.put("referenceImageUrl", referenceImageUrl);
+            }
             session.setContextData(objectMapper.writeValueAsString(context));
         } catch (Exception e) {
             log.warn("Erro ao serializar contextData para a sessão do cliente: {}", e.getMessage());

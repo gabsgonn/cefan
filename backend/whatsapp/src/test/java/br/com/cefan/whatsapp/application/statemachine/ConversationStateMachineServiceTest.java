@@ -253,4 +253,60 @@ class ConversationStateMachineServiceTest {
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Orçamento Estimado"));
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Fineline"));
     }
+
+    @Test
+    void shouldListArtistsPortfolioWhenOptionFourIsChosen() {
+        ConversationSession session = ConversationSession.builder()
+                .customer(customer)
+                .currentState(ConversationState.MENU)
+                .lastInteractionAt(OffsetDateTime.now())
+                .build();
+
+        when(sessionRepository.findByCustomer(customer)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(ConversationSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        EvolutionWebhookRequest webhook = createWebhook("4", false);
+
+        stateMachineService.process(customer, webhook);
+
+        assertEquals(ConversationState.MENU, session.getCurrentState());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Equipe de Especialistas"));
+        verify(chatService).recordBotMessage(eq(session), eq(customer), contains("Equipe de Especialistas"));
+    }
+
+    @Test
+    void shouldAutoTransitionFromMenuToOrcamentoWhenCustomerSendsImageDirectly() {
+        ConversationSession session = ConversationSession.builder()
+                .customer(customer)
+                .currentState(ConversationState.MENU)
+                .lastInteractionAt(OffsetDateTime.now())
+                .build();
+
+        when(sessionRepository.findByCustomer(customer)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(ConversationSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("150.00"))
+                .fixedSetupCost(new BigDecimal("50.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        TattooAnalysisResult analysis = TattooAnalysisResult.builder()
+                .style("Fineline")
+                .complexityLevel("BAIXA")
+                .complexityMultiplier(1.05)
+                .estimatedHours(1.0)
+                .suggestedBodyLocation("Antebraço")
+                .technicalNotes("Traço delicado.")
+                .build();
+        when(geminiVisionClient.analyzeTattoo(any(), any(), any())).thenReturn(analysis);
+
+        EvolutionWebhookRequest webhook = createWebhook("Quero no braço, uns 10cm", true);
+
+        stateMachineService.process(customer, webhook);
+
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Orçamento Estimado"));
+    }
 }

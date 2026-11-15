@@ -126,4 +126,80 @@ class AgendamentoStateHandlerTest {
         assertTrue(message.contains("00020126580014br.gov.bcb.pix0136test-pix-code"));
         assertTrue(message.contains("120.00"));
     }
+
+    @Test
+    void shouldParseExplicitHourAndShiftSlotWhenArtistHasConflict() {
+        br.com.cefan.whatsapp.domain.model.User carlos = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Carlos Silveira")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .isActive(true)
+                .build();
+        when(userRepository.findAll()).thenReturn(java.util.List.of(carlos));
+
+        Appointment existingConflict = Appointment.builder()
+                .id(UUID.randomUUID())
+                .artist(carlos)
+                .status(AppointmentStatus.CONFIRMADO)
+                .scheduledStart(OffsetDateTime.now().plusDays(1).withHour(15).withMinute(0))
+                .scheduledEnd(OffsetDateTime.now().plusDays(1).withHour(17).withMinute(0))
+                .build();
+
+        // First call has conflict at 15h, second call at 18h is free
+        when(appointmentRepository.findByArtistIdAndScheduledStartBetween(eq(carlos.getId()), any(), any()))
+                .thenReturn(java.util.List.of(existingConflict))
+                .thenReturn(java.util.List.of());
+
+        MercadoPagoPaymentResponse mpResponse = MercadoPagoPaymentResponse.builder()
+                .id(999888L)
+                .status("pending")
+                .transactionAmount(new BigDecimal("120.00"))
+                .build();
+        when(paymentClient.createPixPayment(any(), any(), any(), any(), any())).thenReturn(mpResponse);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        handler.handle(customer, session, webhook, "Quero com o Carlos amanhã às 15h");
+
+        ArgumentCaptor<Appointment> appointmentCaptor = ArgumentCaptor.forClass(Appointment.class);
+        verify(appointmentRepository).save(appointmentCaptor.capture());
+
+        Appointment saved = appointmentCaptor.getValue();
+        assertEquals(carlos.getId(), saved.getArtist().getId());
+        assertEquals(18, saved.getScheduledStart().getHour());
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511955555555"), messageCaptor.capture());
+        String msg = messageCaptor.getValue();
+        assertTrue(msg.contains("já estava ocupado na agenda de *Carlos Silveira*"));
+        assertTrue(msg.contains("Pré-Agendamento Criado"));
+    }
+
+    @Test
+    void shouldTransitionToHumanHandoffWhenUserSends3DuringScheduling() {
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        handler.handle(customer, session, webhook, "3");
+
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        verify(appointmentRepository, never()).save(any());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511955555555"), contains("tatuadores"));
+    }
+
+    @Test
+    void shouldParseMinutesAndHandleHojeSafelyWithoutDateTimeException() {
+        OffsetDateTime slotWithMinutes = handler.parseRequestedSlot("Quero agendar amanhã às 15:30");
+        assertEquals(15, slotWithMinutes.getHour());
+        assertEquals(30, slotWithMinutes.getMinute());
+
+        OffsetDateTime slotWithHMinutes = handler.parseRequestedSlot("Quero amanhã às 16h45");
+        assertEquals(16, slotWithHMinutes.getHour());
+        assertEquals(45, slotWithHMinutes.getMinute());
+
+        OffsetDateTime slotHoje = assertDoesNotThrow(() -> handler.parseRequestedSlot("Quero agendar hoje"));
+        assertNotNull(slotHoje);
+        assertTrue(slotHoje.getHour() >= 8 && slotHoje.getHour() <= 20);
+    }
 }

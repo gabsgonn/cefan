@@ -48,6 +48,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm", Locale.forLanguageTag("pt-BR"));
     private static final Pattern DATE_PATTERN = Pattern.compile("(\\d{1,2})[/.-](\\d{1,2})");
+    private static final Pattern HOUR_PATTERN = Pattern.compile("(?i)(?:às|as|a partir das|\\b)\\s*(\\d{1,2})\\s*(?:h(?:oras)?(?:\\s*(\\d{2}))?|:(\\d{2}))");
 
     @Override
     public ConversationState getSupportedState() {
@@ -62,12 +63,42 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 .findFirst()
                 .orElse(null);
 
+        String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
+
+        // Permite transbordo humano (Opção 3) mesmo dentro do fluxo de agendamento
+        if (input.equals("3") || input.contains("humano") || input.contains("falar") || input.contains("atendente") || input.equals("tatuador")) {
+            session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+            String customTemplate = (tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
+                    ? tenantConfig.getHumanTransferMessage()
+                    : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!";
+            String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    customer.getName(), customTemplate);
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
+            return;
+        }
+
+        // Permite voltar para orçamento com IA (Opção 1)
+        if (input.equals("1") || input.contains("orçamento") || input.contains("orcamento")) {
+            session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
+            String customTemplate = (tenantConfig != null && tenantConfig.getOrcamentoIntroMessage() != null && !tenantConfig.getOrcamentoIntroMessage().isBlank())
+                    ? tenantConfig.getOrcamentoIntroMessage()
+                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga o local do corpo e tamanho aproximado em cm.";
+            String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",
+                    customer.getName(), customTemplate);
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
+            return;
+        }
+
         // 1. Identifica o Tatuador preferido ou recomendado
         User assignedArtist = resolveArtist(messageText, session.getContextData());
         String artistName = (assignedArtist != null) ? assignedArtist.getName() : "Equipe Vício Tattoo";
 
         // 2. Calcula data inteligente e verifica disponibilidade de slots
-        OffsetDateTime scheduledStart = resolveAvailableSlot(messageText, assignedArtist);
+        OffsetDateTime requestedSlot = parseRequestedSlot(messageText);
+        OffsetDateTime scheduledStart = resolveAvailableSlot(requestedSlot, assignedArtist);
+        boolean wasConflictAdjusted = !scheduledStart.isEqual(requestedSlot);
         OffsetDateTime scheduledEnd = scheduledStart.plusHours(2);
         OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(2);
 
@@ -126,8 +157,14 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         // 6. Envia mensagem formatada com as instruções de pagamento no WhatsApp
         String dateFormatted = scheduledStart.format(DATE_FORMATTER);
+        String conflictNotice = wasConflictAdjusted
+                ? String.format("⚠️ _Nota: O horário de %s já estava ocupado na agenda de *%s*, então reservamos o próximo horário livre disponível:_\n\n",
+                        requestedSlot.format(DATE_FORMATTER), artistName)
+                : "";
+
         String reply = String.format(
                 "🗓️ *Pré-Agendamento Criado!* 🗓️\n\n" +
+                "%s" +
                 "Olá, %s! Bloqueamos seu horário com sucesso:\n" +
                 "📅 *Data da Sessão:* %s\n" +
                 "👨‍🎨 *Profissional:* %s\n" +
@@ -138,6 +175,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 "%s\n\n" +
                 "Assim que o pagamento for identificado, confirmaremos sua vaga automaticamente! ✨\n\n" +
                 "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
+                conflictNotice,
                 customer.getName(),
                 dateFormatted,
                 artistName,
@@ -184,24 +222,49 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 .orElse(null);
     }
 
-    private OffsetDateTime resolveAvailableSlot(String messageText, User artist) {
+    OffsetDateTime parseRequestedSlot(String messageText) {
         String lower = (messageText != null) ? messageText.toLowerCase() : "";
-        OffsetDateTime target = OffsetDateTime.now().plusDays(2).withHour(14).withMinute(0).withSecond(0).withNano(0);
+        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime target = now.plusDays(2).withHour(14).withMinute(0).withSecond(0).withNano(0);
 
-        // Ajuste de período (manhã / tarde / noite)
+        // Ajuste de período (manhã / tarde / noite) ou hora explícita (ex: 15h, 15h30, 11h, 17:00, 15:30)
         int hour = 14;
-        if (lower.contains("manhã") || lower.contains("manha") || lower.contains("10h")) {
+        int minute = 0;
+        if (lower.contains("manhã") || lower.contains("manha")) {
             hour = 10;
-        } else if (lower.contains("noite") || lower.contains("18h") || lower.contains("19h")) {
+        } else if (lower.contains("noite")) {
             hour = 18;
-        } else if (lower.contains("16h")) {
-            hour = 16;
+        }
+
+        boolean hasExplicitHour = false;
+        Matcher hourMatcher = HOUR_PATTERN.matcher(lower);
+        if (hourMatcher.find()) {
+            try {
+                int parsedHour = Integer.parseInt(hourMatcher.group(1));
+                if (parsedHour >= 8 && parsedHour <= 21) {
+                    hour = parsedHour;
+                    hasExplicitHour = true;
+                }
+                String minGroup = hourMatcher.group(2) != null ? hourMatcher.group(2) : hourMatcher.group(3);
+                if (minGroup != null) {
+                    int parsedMin = Integer.parseInt(minGroup);
+                    if (parsedMin >= 0 && parsedMin < 60) {
+                        minute = parsedMin;
+                    }
+                }
+            } catch (Exception ignored) {}
         }
 
         if (lower.contains("amanhã") || lower.contains("amanha")) {
-            target = OffsetDateTime.now().plusDays(1).withHour(hour).withMinute(0).withSecond(0).withNano(0);
+            target = now.plusDays(1).withHour(hour).withMinute(minute).withSecond(0).withNano(0);
         } else if (lower.contains("hoje")) {
-            target = OffsetDateTime.now().withHour(Math.max(OffsetDateTime.now().getHour() + 2, 14)).withMinute(0).withSecond(0).withNano(0);
+            int candidateHour = hasExplicitHour ? hour : Math.max(now.getHour() + 2, hour);
+            if (candidateHour > 20 || candidateHour < now.getHour() || (candidateHour == now.getHour() && minute <= now.getMinute())) {
+                int nextDayHour = (hasExplicitHour && hour >= 8 && hour <= 20) ? hour : 14;
+                target = now.plusDays(1).withHour(nextDayHour).withMinute(minute).withSecond(0).withNano(0);
+            } else {
+                target = now.withHour(candidateHour).withMinute(minute).withSecond(0).withNano(0);
+            }
         } else {
             // Verifica dia da semana
             DayOfWeek dow = null;
@@ -213,11 +276,14 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             else if (lower.contains("sábado") || lower.contains("sabado")) dow = DayOfWeek.SATURDAY;
 
             if (dow != null) {
-                target = OffsetDateTime.now();
+                target = now;
                 while (target.getDayOfWeek() != dow) {
                     target = target.plusDays(1);
                 }
-                target = target.withHour(hour).withMinute(0).withSecond(0).withNano(0);
+                target = target.withHour(hour).withMinute(minute).withSecond(0).withNano(0);
+                if (!target.isAfter(now)) {
+                    target = target.plusDays(7);
+                }
             } else {
                 // Tenta regex dd/MM
                 Matcher m = DATE_PATTERN.matcher(lower);
@@ -225,27 +291,50 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                     try {
                         int day = Integer.parseInt(m.group(1));
                         int month = Integer.parseInt(m.group(2));
-                        target = target.withMonth(month).withDayOfMonth(day).withHour(hour).withMinute(0).withSecond(0).withNano(0);
-                        if (target.isBefore(OffsetDateTime.now())) {
+                        target = target.withMonth(month).withDayOfMonth(day).withHour(hour).withMinute(minute).withSecond(0).withNano(0);
+                        if (target.isBefore(now)) {
                             target = target.plusYears(1);
                         }
                     } catch (Exception ignored) {}
+                } else {
+                    target = target.withHour(hour).withMinute(minute);
                 }
             }
         }
+        return target;
+    }
 
-        // Verifica colisão na grade de agendamentos
-        if (artist != null) {
-            OffsetDateTime windowStart = target.minusHours(1);
-            OffsetDateTime windowEnd = target.plusHours(2);
-            List<Appointment> conflicts = appointmentRepository.findByArtistIdAndScheduledStartBetween(artist.getId(), windowStart, windowEnd);
-            if (!conflicts.isEmpty()) {
-                // Horário ocupado, avança para próximo slot livre (ex: +3 horas)
-                target = target.plusHours(3);
-            }
+    private OffsetDateTime resolveAvailableSlot(OffsetDateTime target, User artist) {
+        if (artist == null) {
+            return target;
         }
 
-        return target;
+        OffsetDateTime candidate = target;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            OffsetDateTime windowStart = candidate.minusHours(2);
+            OffsetDateTime windowEnd = candidate.plusHours(2);
+            final OffsetDateTime slotStart = candidate;
+            final OffsetDateTime slotEnd = candidate.plusHours(2);
+            List<Appointment> conflicts = appointmentRepository
+                    .findByArtistIdAndScheduledStartBetween(artist.getId(), windowStart, windowEnd)
+                    .stream()
+                    .filter(a -> a.getStatus() != AppointmentStatus.CANCELADO && a.getStatus() != AppointmentStatus.EXPIRADO)
+                    .filter(a -> {
+                        if (a.getScheduledStart() == null) return true;
+                        OffsetDateTime existingEnd = a.getScheduledEnd() != null ? a.getScheduledEnd() : a.getScheduledStart().plusHours(2);
+                        return a.getScheduledStart().isBefore(slotEnd) && existingEnd.isAfter(slotStart);
+                    })
+                    .toList();
+
+            if (conflicts.isEmpty()) {
+                return candidate;
+            }
+            candidate = candidate.plusHours(3);
+            if (candidate.getHour() > 20 || candidate.getHour() < 9) {
+                candidate = candidate.plusDays(1).withHour(14).withMinute(0).withSecond(0).withNano(0);
+            }
+        }
+        return candidate;
     }
 
     private BigDecimal extractPriceFromContext(String contextData) {
