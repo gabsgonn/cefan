@@ -21,6 +21,8 @@ public class AppointmentResponse {
     private UUID customerId;
     private String customerName;
     private String customerPhone;
+    private UUID artistId;
+    private String artistName;
     private OffsetDateTime scheduledStart;
     private OffsetDateTime scheduledEnd;
     private AppointmentStatus status;
@@ -55,6 +57,8 @@ public class AppointmentResponse {
                 .customerId(appointment.getCustomer() != null ? appointment.getCustomer().getId() : null)
                 .customerName(appointment.getCustomer() != null ? appointment.getCustomer().getName() : "Cliente")
                 .customerPhone(appointment.getCustomer() != null ? appointment.getCustomer().getPhone() : "")
+                .artistId(appointment.getArtist() != null ? appointment.getArtist().getId() : null)
+                .artistName(appointment.getArtist() != null ? appointment.getArtist().getName() : null)
                 .scheduledStart(appointment.getScheduledStart())
                 .scheduledEnd(appointment.getScheduledEnd())
                 .status(appointment.getStatus())

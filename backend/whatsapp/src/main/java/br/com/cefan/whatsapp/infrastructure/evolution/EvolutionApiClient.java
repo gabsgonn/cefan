@@ -116,4 +116,63 @@ public class EvolutionApiClient {
         }
         return Optional.empty();
     }
+
+    public boolean checkConnectionState(String instance) {
+        String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
+        try {
+            JsonNode response = restClient.get()
+                    .uri("/instance/connectionState/{instance}", targetInstance)
+                    .retrieve()
+                    .body(JsonNode.class);
+            if (response != null) {
+                JsonNode stateNode = response.has("instance") ? response.get("instance").get("state") : response.get("state");
+                if (stateNode != null && stateNode.isTextual()) {
+                    String state = stateNode.asText().toLowerCase();
+                    return "open".equals(state) || "connected".equals(state);
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            log.debug("Evolution API connectionState indisponível no momento para [{}]: {}", targetInstance, e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean checkConnectionState() {
+        return checkConnectionState(defaultInstance);
+    }
+
+    public boolean restartInstance(String instance) {
+        String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
+        log.info("Solicitando reinicialização da instância [{}] na Evolution API", targetInstance);
+        try {
+            restClient.put()
+                    .uri("/instance/restart/{instance}", targetInstance)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Instância [{}] reiniciada com sucesso na Evolution API.", targetInstance);
+            return true;
+        } catch (Exception e) {
+            log.warn("Não foi possível reiniciar a instância [{}] via PUT /instance/restart ({}). Tentando reconexão GET /instance/connect...",
+                    targetInstance, e.getMessage());
+            try {
+                restClient.get()
+                        .uri("/instance/connect/{instance}", targetInstance)
+                        .retrieve()
+                        .toBodilessEntity();
+                return true;
+            } catch (Exception ex) {
+                log.warn("Reconexão da instância [{}] falhou (serviço externo offline ou em modo dev): {}", targetInstance, ex.getMessage());
+                return false;
+            }
+        }
+    }
+
+    public boolean restartInstance() {
+        return restartInstance(defaultInstance);
+    }
+
+    public String getDefaultInstance() {
+        return defaultInstance;
+    }
 }

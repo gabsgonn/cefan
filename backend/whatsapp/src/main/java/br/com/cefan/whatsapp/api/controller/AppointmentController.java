@@ -27,7 +27,11 @@ public class AppointmentController {
     public ResponseEntity<List<AppointmentResponse>> listAppointments(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime start,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime end,
-            @RequestParam(required = false) AppointmentStatus status) {
+            @RequestParam(required = false) AppointmentStatus status,
+            @RequestParam(required = false) UUID artistId) {
+        if (artistId != null) {
+            return ResponseEntity.ok(appointmentService.listAppointments(start, end, status, artistId));
+        }
         return ResponseEntity.ok(appointmentService.listAppointments(start, end, status));
     }
 

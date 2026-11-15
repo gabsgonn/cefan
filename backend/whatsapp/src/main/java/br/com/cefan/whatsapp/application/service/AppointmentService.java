@@ -7,11 +7,16 @@ import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentAuditLog;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.Customer;
+import br.com.cefan.whatsapp.domain.model.User;
+import br.com.cefan.whatsapp.domain.model.UserRole;
 import br.com.cefan.whatsapp.domain.repository.AppointmentAuditLogRepository;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
 import br.com.cefan.whatsapp.domain.repository.CustomerRepository;
-import lombok.RequiredArgsConstructor;
+import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,16 +29,47 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AppointmentService {
 
     private final AppointmentRepository appointmentRepository;
     private final CustomerRepository customerRepository;
     private final AppointmentAuditLogRepository auditLogRepository;
+    private final UserRepository userRepository;
+
+    public AppointmentService(
+            AppointmentRepository appointmentRepository,
+            CustomerRepository customerRepository,
+            AppointmentAuditLogRepository auditLogRepository) {
+        this(appointmentRepository, customerRepository, auditLogRepository, null);
+    }
+
+    @Autowired
+    public AppointmentService(
+            AppointmentRepository appointmentRepository,
+            CustomerRepository customerRepository,
+            AppointmentAuditLogRepository auditLogRepository,
+            UserRepository userRepository) {
+        this.appointmentRepository = appointmentRepository;
+        this.customerRepository = customerRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.userRepository = userRepository;
+    }
 
     @Transactional(readOnly = true)
     public List<AppointmentResponse> listAppointments(OffsetDateTime start, OffsetDateTime end, AppointmentStatus status) {
+        return listAppointments(start, end, status, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> listAppointments(OffsetDateTime start, OffsetDateTime end, AppointmentStatus status, UUID artistId) {
         List<Appointment> all = appointmentRepository.findAll();
+
+        User currentUser = getCurrentAuthenticatedUser();
+        UUID effectiveArtistFilter = artistId;
+        if (currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            effectiveArtistFilter = currentUser.getId();
+        }
+        final UUID targetArtistId = effectiveArtistFilter;
 
         return all.stream()
                 .filter(a -> {
@@ -45,6 +81,9 @@ public class AppointmentService {
                     }
                     if (status != null && a.getStatus() != status) {
                         return false;
+                    }
+                    if (targetArtistId != null) {
+                        return a.getArtist() != null && targetArtistId.equals(a.getArtist().getId());
                     }
                     return true;
                 })
@@ -74,8 +113,21 @@ public class AppointmentService {
         BigDecimal totalPrice = isTouchup ? BigDecimal.ZERO : (request.getTotalPrice() != null ? request.getTotalPrice() : BigDecimal.ZERO);
         BigDecimal deposit = isTouchup ? BigDecimal.ZERO : (request.getDepositAmount() != null ? request.getDepositAmount() : BigDecimal.ZERO);
 
+        User artist = null;
+        if (userRepository != null) {
+            if (request.getArtistId() != null) {
+                artist = userRepository.findById(request.getArtistId()).orElse(null);
+            } else {
+                User currentUser = getCurrentAuthenticatedUser();
+                if (currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+                    artist = currentUser;
+                }
+            }
+        }
+
         Appointment appointment = Appointment.builder()
                 .customer(customer)
+                .artist(artist)
                 .scheduledStart(request.getScheduledStart())
                 .scheduledEnd(request.getScheduledEnd())
                 .status(AppointmentStatus.CONFIRMADO)
@@ -123,6 +175,9 @@ public class AppointmentService {
             }
         }
 
+        if (request.getArtistId() != null && userRepository != null) {
+            userRepository.findById(request.getArtistId()).ifPresent(appointment::setArtist);
+        }
         if (request.getScheduledStart() != null) {
             appointment.setScheduledStart(request.getScheduledStart());
         }
@@ -135,6 +190,15 @@ public class AppointmentService {
 
         appointment = appointmentRepository.save(appointment);
         return AppointmentResponse.fromEntity(appointment);
+    }
+
+    private User getCurrentAuthenticatedUser() {
+        if (userRepository == null) return null;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getName() != null) {
+            return userRepository.findByEmail(auth.getName()).orElse(null);
+        }
+        return null;
     }
 
     @Transactional(readOnly = true)

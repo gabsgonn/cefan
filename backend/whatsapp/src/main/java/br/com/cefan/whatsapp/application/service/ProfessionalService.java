@@ -141,8 +141,8 @@ public class ProfessionalService {
         TenantConfig tenant = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
 
         List<ArtistSeedData> team = List.of(
-                new ArtistSeedData("Carlos Eduardo", "carlos@viciotattoo.com", "5511988880001", "Fineline, Traço Fino, Minimalista", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(24)),
-                new ArtistSeedData("Mariana Rocha", "mariana@viciotattoo.com", "5511988880002", "Realismo Preto e Cinza, Retratos", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now().minusMonths(18)),
+                new ArtistSeedData("Carlos Silveira", "carlos@viciotattoo.com", "5511988880001", "Realismo Preto e Cinza, Retratos", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(24)),
+                new ArtistSeedData("Mariana Rocha", "mariana@viciotattoo.com", "5511988880002", "Fineline, Traço Fino, Minimalista, Florais", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now().minusMonths(18)),
                 new ArtistSeedData("Lucas 'Blade'", "lucas@viciotattoo.com", "5511988880003", "Blackwork, Tribal, Geométrico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now().minusMonths(30)),
                 new ArtistSeedData("Beatriz Lima", "beatriz@viciotattoo.com", "5511988880004", "Aquarela, Floral, Botânico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(12)),
                 new ArtistSeedData("Rodrigo 'Old' Santos", "rodrigo@viciotattoo.com", "5511988880005", "Old School, Tradicional Americano", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(36)),

@@ -5,10 +5,12 @@ import br.com.cefan.whatsapp.domain.model.ChatMessage;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
+import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
 import br.com.cefan.whatsapp.domain.repository.ChatMessageRepository;
 import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
+import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
 import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import lombok.RequiredArgsConstructor;
@@ -33,11 +35,14 @@ public class ChatService {
     private final ChatMessageRepository chatMessageRepository;
     private final ConversationSessionRepository sessionRepository;
     private final UserRepository userRepository;
+    private final TenantConfigRepository tenantConfigRepository;
     private final EvolutionApiClient evolutionApiClient;
 
     // Mapa de sessões ativas com lista de emitters SSE para streaming em tempo real
     private final Map<UUID, List<SseEmitter>> sessionEmitters = new ConcurrentHashMap<>();
-    private final List<SseEmitter> globalEmitters = new CopyOnWriteArrayList<>();
+    private final List<GlobalSubscriber> globalEmitters = new CopyOnWriteArrayList<>();
+
+    private record GlobalSubscriber(SseEmitter emitter, User user) {}
 
     @Transactional
     public ChatMessageDto recordIncomingMessage(ConversationSession session, Customer customer, String content, String mediaUrl, String mediaType) {
@@ -55,7 +60,7 @@ public class ChatService {
 
         ChatMessage saved = chatMessageRepository.save(message);
         ChatMessageDto dto = ChatMessageDto.fromEntity(saved);
-        broadcast(session.getId(), dto);
+        broadcast(session, dto);
         return dto;
     }
 
@@ -77,7 +82,7 @@ public class ChatService {
 
         ChatMessage saved = chatMessageRepository.save(message);
         ChatMessageDto dto = ChatMessageDto.fromEntity(saved);
-        broadcast(session.getId(), dto);
+        broadcast(session, dto);
         return dto;
     }
 
@@ -120,7 +125,7 @@ public class ChatService {
         sessionRepository.save(session);
 
         // 3. Notifica clientes conectados via SSE
-        broadcast(sessionId, dto);
+        broadcast(session, dto);
         return dto;
     }
 
@@ -154,20 +159,25 @@ public class ChatService {
     }
 
     public SseEmitter subscribeGlobal() {
-        SseEmitter emitter = new SseEmitter(180_000L);
-        globalEmitters.add(emitter);
+        return subscribeGlobal(null);
+    }
 
-        emitter.onCompletion(() -> globalEmitters.remove(emitter));
+    public SseEmitter subscribeGlobal(User subscriber) {
+        SseEmitter emitter = new SseEmitter(180_000L);
+        GlobalSubscriber sub = new GlobalSubscriber(emitter, subscriber);
+        globalEmitters.add(sub);
+
+        emitter.onCompletion(() -> globalEmitters.remove(sub));
         emitter.onTimeout(() -> {
-            globalEmitters.remove(emitter);
+            globalEmitters.remove(sub);
             emitter.complete();
         });
-        emitter.onError((e) -> globalEmitters.remove(emitter));
+        emitter.onError((e) -> globalEmitters.remove(sub));
 
         try {
             emitter.send(SseEmitter.event().name("INIT").data("Connected to global live chat stream"));
         } catch (IOException e) {
-            globalEmitters.remove(emitter);
+            globalEmitters.remove(sub);
         }
 
         return emitter;
@@ -201,14 +211,42 @@ public class ChatService {
         session.setLastInteractionAt(OffsetDateTime.now());
         sessionRepository.save(session);
 
-        String resetMsg = "🔄 Conversa reiniciada pelo estúdio. Olá! Como podemos te ajudar agora?";
+        TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
+        String resetMsg = (config != null && config.getBotResetMessage() != null && !config.getBotResetMessage().isBlank())
+                ? config.getBotResetMessage()
+                : "🔄 Conversa reiniciada pelo estúdio. Olá! Como podemos te ajudar agora?";
+
         evolutionApiClient.sendTextMessage(session.getCustomer().getPhone(), resetMsg);
         recordBotMessage(session, session.getCustomer(), resetMsg);
 
         log.info("Sessão [{}] resetada com sucesso pelo operador do estúdio.", sessionId);
     }
 
-    private void broadcast(UUID sessionId, ChatMessageDto dto) {
+    @Transactional
+    public void attachMediaToLatestCustomerMessage(UUID sessionId, String mediaUrl, String mediaType) {
+        if (sessionId == null || mediaUrl == null || mediaUrl.isBlank()) {
+            return;
+        }
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage msg = messages.get(i);
+            if (msg.getSenderType() == ChatMessage.SenderType.CUSTOMER) {
+                msg.setMediaUrl(mediaUrl);
+                if (mediaType != null && !mediaType.isBlank()) {
+                    msg.setMediaType(mediaType);
+                }
+                ChatMessage saved = chatMessageRepository.save(msg);
+                broadcast(msg.getSession(), ChatMessageDto.fromEntity(saved));
+                break;
+            }
+        }
+    }
+
+    private void broadcast(ConversationSession session, ChatMessageDto dto) {
+        if (session == null || session.getId() == null) {
+            return;
+        }
+        UUID sessionId = session.getId();
         List<SseEmitter> sessionList = sessionEmitters.get(sessionId);
         if (sessionList != null) {
             for (SseEmitter emitter : sessionList) {
@@ -220,12 +258,27 @@ public class ChatService {
             }
         }
 
-        for (SseEmitter emitter : globalEmitters) {
+        for (GlobalSubscriber sub : globalEmitters) {
+            if (!canSubscriberViewSession(sub.user(), session)) {
+                continue;
+            }
             try {
-                emitter.send(SseEmitter.event().name("MESSAGE").data(dto));
+                sub.emitter().send(SseEmitter.event().name("MESSAGE").data(dto));
             } catch (Exception e) {
-                globalEmitters.remove(emitter);
+                globalEmitters.remove(sub);
             }
         }
+    }
+
+    private boolean canSubscriberViewSession(User user, ConversationSession session) {
+        if (user == null || user.getRole() != UserRole.ARTIST) {
+            return true;
+        }
+        if (session.getAssignedUser() != null && user.getId().equals(session.getAssignedUser().getId())) {
+            return true;
+        }
+        return session.getAssignedArtistName() != null
+                && user.getName() != null
+                && session.getAssignedArtistName().toLowerCase().contains(user.getName().toLowerCase());
     }
 }

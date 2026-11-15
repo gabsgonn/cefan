@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Data
 @Builder
@@ -21,6 +22,8 @@ public class CreateAppointmentRequest {
 
     @NotBlank(message = "O telefone do cliente é obrigatório")
     private String customerPhone;
+
+    private UUID artistId;
 
     @NotNull(message = "O horário inicial é obrigatório")
     private OffsetDateTime scheduledStart;

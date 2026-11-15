@@ -2,12 +2,15 @@ package br.com.cefan.whatsapp.application.service;
 
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
+import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
+import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
+import br.com.cefan.whatsapp.domain.repository.TenantConfigRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import br.com.cefan.whatsapp.infrastructure.mercadopago.MercadoPagoPaymentClient;
 import br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,15 +19,40 @@ import java.util.Locale;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class PaymentProcessingService {
 
     private final AppointmentRepository appointmentRepository;
     private final MercadoPagoPaymentClient paymentClient;
     private final EvolutionApiClient evolutionApiClient;
+    private final ConversationSessionRepository sessionRepository;
+    private final TenantConfigRepository tenantConfigRepository;
+    private final ChatService chatService;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.forLanguageTag("pt-BR"));
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("pt-BR"));
+
+    public PaymentProcessingService(
+            AppointmentRepository appointmentRepository,
+            MercadoPagoPaymentClient paymentClient,
+            EvolutionApiClient evolutionApiClient) {
+        this(appointmentRepository, paymentClient, evolutionApiClient, null, null, null);
+    }
+
+    @Autowired
+    public PaymentProcessingService(
+            AppointmentRepository appointmentRepository,
+            MercadoPagoPaymentClient paymentClient,
+            EvolutionApiClient evolutionApiClient,
+            ConversationSessionRepository sessionRepository,
+            TenantConfigRepository tenantConfigRepository,
+            ChatService chatService) {
+        this.appointmentRepository = appointmentRepository;
+        this.paymentClient = paymentClient;
+        this.evolutionApiClient = evolutionApiClient;
+        this.sessionRepository = sessionRepository;
+        this.tenantConfigRepository = tenantConfigRepository;
+        this.chatService = chatService;
+    }
 
     @Transactional
     public boolean handlePaymentNotification(String paymentId) {
@@ -59,8 +87,15 @@ public class PaymentProcessingService {
             String dateFormatted = appointment.getScheduledStart().format(DATE_FORMATTER);
             String timeFormatted = appointment.getScheduledStart().format(TIME_FORMATTER);
 
+            TenantConfig config = (tenantConfigRepository != null)
+                    ? tenantConfigRepository.findAll().stream().findFirst().orElse(null)
+                    : null;
+            String customHeader = (config != null && config.getPixConfirmedMessage() != null && !config.getPixConfirmedMessage().isBlank())
+                    ? config.getPixConfirmedMessage() + "\n\n"
+                    : "";
+
             String confirmationMessage = String.format(
-                    "🎉 *Pagamento do Sinal Confirmado!* 🎉\n\n" +
+                    "%s🎉 *Pagamento do Sinal Confirmado!* 🎉\n\n" +
                     "Olá, %s! Seu pagamento de *R$ %s* foi confirmado com sucesso!\n\n" +
                     "🗓️ *Sua sessão está 100%% garantida!*\n" +
                     "📅 *Data:* %s às %sh\n" +
@@ -70,6 +105,7 @@ public class PaymentProcessingService {
                     "• Vista roupas confortáveis que facilitem o acesso ao local da arte;\n" +
                     "• Evite consumir álcool nas 24h anteriores.\n\n" +
                     "Nos vemos em breve! Qualquer dúvida estamos por aqui. 🎨✨",
+                    customHeader,
                     customerName,
                     appointment.getDepositAmount(),
                     dateFormatted,
@@ -77,6 +113,12 @@ public class PaymentProcessingService {
             );
 
             evolutionApiClient.sendTextMessage(customerPhone, confirmationMessage);
+
+            if (sessionRepository != null && chatService != null) {
+                sessionRepository.findByCustomer(appointment.getCustomer())
+                        .ifPresent(session -> chatService.recordBotMessage(session, appointment.getCustomer(), confirmationMessage));
+            }
+
             return true;
         } else {
             log.info("Pagamento [{}] ainda não está com status 'approved' (Status atual: [{}])",

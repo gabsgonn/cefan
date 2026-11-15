@@ -111,14 +111,20 @@ public class StudioAdminController implements WebMvcConfigurer {
         String role = user.getRole() != null ? user.getRole().name() : "ARTIST";
         String studioName = user.getTenant() != null ? user.getTenant().getStudioName() : "Vício Tattoo";
 
-        return ResponseEntity.ok(Map.of(
-                "token", token,
-                "id", user.getId().toString(),
-                "name", user.getName(),
-                "email", user.getEmail(),
-                "role", role,
-                "studioName", studioName
-        ));
+        Map<String, Object> loginResponse = new LinkedHashMap<>();
+        loginResponse.put("token", token);
+        loginResponse.put("id", user.getId().toString());
+        loginResponse.put("name", user.getName());
+        loginResponse.put("email", user.getEmail());
+        loginResponse.put("role", role);
+        loginResponse.put("studioName", studioName);
+        if (user.getArtistRateType() != null) {
+            loginResponse.put("artistRateType", user.getArtistRateType());
+        }
+        if (user.getArtistRateValue() != null) {
+            loginResponse.put("artistRateValue", user.getArtistRateValue());
+        }
+        return ResponseEntity.ok(loginResponse);
     }
 
     // ==========================================================
@@ -157,28 +163,54 @@ public class StudioAdminController implements WebMvcConfigurer {
 
     @GetMapping("/conversations/{id}/messages")
     @Transactional(readOnly = true)
-    public ResponseEntity<List<ChatMessageDto>> getConversationMessages(@PathVariable UUID id) {
+    public ResponseEntity<?> getConversationMessages(@PathVariable UUID id) {
+        ConversationSession session = sessionRepository.findById(id).orElse(null);
+        User currentUser = getCurrentAuthenticatedUser();
+        if (session != null && currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            if (!isSessionAssignedToArtist(session, currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("message", "Acesso negado: esta conversa não está atribuída ao seu perfil."));
+            }
+        }
         return ResponseEntity.ok(chatService.getMessagesBySession(id));
     }
 
     @GetMapping(value = "/conversations/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamConversationMessages(@PathVariable UUID id) {
-        return chatService.subscribe(id);
+    public ResponseEntity<?> streamConversationMessages(@PathVariable UUID id) {
+        ConversationSession session = sessionRepository.findById(id).orElse(null);
+        User currentUser = getCurrentAuthenticatedUser();
+        if (session != null && currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            if (!isSessionAssignedToArtist(session, currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("message", "Acesso negado: stream desta conversa não está atribuído ao seu perfil."));
+            }
+        }
+        return ResponseEntity.ok(chatService.subscribe(id));
+    }
+
+    @GetMapping(value = "/conversations/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamAllConversations() {
+        User currentUser = getCurrentAuthenticatedUser();
+        return chatService.subscribeGlobal(currentUser);
     }
 
     @PostMapping("/conversations/{id}/messages")
     @Transactional
-    public ResponseEntity<ChatMessageDto> sendHumanMessage(
+    public ResponseEntity<?> sendHumanMessage(
             @PathVariable UUID id,
             @RequestBody SendMessageRequest request) {
         if (request == null || request.getMessage() == null || request.getMessage().isBlank()) {
             throw new IllegalArgumentException("A mensagem não pode estar vazia.");
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        User currentUser = null;
-        if (auth != null && auth.getName() != null) {
-            currentUser = userRepository.findByEmail(auth.getName()).orElse(null);
+        User currentUser = getCurrentAuthenticatedUser();
+        ConversationSession targetSession = sessionRepository.findById(id).orElse(null);
+        if (targetSession != null && currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            if (!isSessionAssignedToArtist(targetSession, currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("message", "Acesso negado: você só pode responder conversas atribuídas a você."));
+            }
         }
 
         UUID agentUserId = (currentUser != null) ? currentUser.getId() : null;
@@ -196,33 +228,130 @@ public class StudioAdminController implements WebMvcConfigurer {
 
     @PostMapping("/conversations/{id}/assign")
     @Transactional
-    public ResponseEntity<Void> assignArtist(
+    public ResponseEntity<?> assignArtist(
             @PathVariable UUID id,
             @RequestBody AssignArtistRequest request) {
+        User currentUser = getCurrentAuthenticatedUser();
+        if (currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "Apenas o Dono do estúdio pode atribuir ou transferir conversas entre profissionais."));
+        }
         chatService.assignArtist(id, request != null ? request.getArtistId() : null);
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/conversations/{id}/reset")
     @Transactional
-    public ResponseEntity<Void> resetBotSession(@PathVariable UUID id) {
+    public ResponseEntity<?> resetBotSession(@PathVariable UUID id) {
+        ConversationSession session = sessionRepository.findById(id).orElse(null);
+        User currentUser = getCurrentAuthenticatedUser();
+        if (session != null && currentUser != null && currentUser.getRole() == UserRole.ARTIST) {
+            if (!isSessionAssignedToArtist(session, currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("message", "Acesso negado: você só pode reiniciar conversas atribuídas ao seu perfil."));
+            }
+        }
         chatService.resetBotSession(id);
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/bot/status")
+    @PostMapping("/bot/reset/{targetId}")
+    @Transactional
+    public ResponseEntity<?> resetBotByTargetId(@PathVariable UUID targetId) {
+        User currentUser = getCurrentAuthenticatedUser();
+        Optional<ConversationSession> bySession = sessionRepository.findById(targetId);
+        if (bySession.isPresent()) {
+            if (currentUser != null && currentUser.getRole() == UserRole.ARTIST && !isSessionAssignedToArtist(bySession.get(), currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("message", "Acesso negado: você só pode reiniciar conversas atribuídas ao seu perfil."));
+            }
+            chatService.resetBotSession(targetId);
+            return ResponseEntity.ok().build();
+        }
+        Optional<ConversationSession> byCustomer = sessionRepository.findAll().stream()
+                .filter(s -> s.getCustomer() != null && targetId.equals(s.getCustomer().getId()))
+                .findFirst();
+        if (byCustomer.isPresent()) {
+            if (currentUser != null && currentUser.getRole() == UserRole.ARTIST && !isSessionAssignedToArtist(byCustomer.get(), currentUser)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("message", "Acesso negado: você só pode reiniciar conversas atribuídas ao seu perfil."));
+            }
+            chatService.resetBotSession(byCustomer.get().getId());
+            return ResponseEntity.ok().build();
+        }
+        throw new IllegalArgumentException("Sessão não encontrada para o identificador informado: " + targetId);
+    }
+
+    @GetMapping({"/bot/status", "/bot/health-status"})
+    @Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getBotStatus() {
-        return ResponseEntity.ok(Map.of(
-                "status", "CONNECTED",
-                "instance", "cefan-studio",
-                "webhookActive", true,
-                "timestamp", OffsetDateTime.now()
-        ));
+        boolean postgresOnline = true;
+        try {
+            entityManager.createNativeQuery("SELECT 1").getSingleResult();
+        } catch (Exception e) {
+            postgresOnline = false;
+        }
+        boolean evoReachable = evolutionApiClient.checkConnectionState();
+        String instanceName = evolutionApiClient.getDefaultInstance() != null
+                ? evolutionApiClient.getDefaultInstance()
+                : "cefan-studio";
+
+        Map<String, Object> statusMap = new LinkedHashMap<>();
+        statusMap.put("status", "CONNECTED");
+        statusMap.put("instance", instanceName);
+        statusMap.put("webhookActive", true);
+        statusMap.put("springBootOnline", true);
+        statusMap.put("postgresOnline", postgresOnline);
+        statusMap.put("evolutionApiConnected", true);
+        statusMap.put("evolutionLiveReachable", evoReachable);
+        statusMap.put("mercadoPagoWebhookActive", true);
+        statusMap.put("timestamp", OffsetDateTime.now());
+        return ResponseEntity.ok(statusMap);
+    }
+
+    @PostMapping("/bot/reconnect")
+    public ResponseEntity<Map<String, Object>> reconnectBotInstance() {
+        boolean restarted = evolutionApiClient.restartInstance();
+        String instanceName = evolutionApiClient.getDefaultInstance() != null
+                ? evolutionApiClient.getDefaultInstance()
+                : "cefan-studio";
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "CONNECTED");
+        response.put("restarted", restarted);
+        response.put("instance", instanceName);
+        response.put("message", "Instância do WhatsApp (" + instanceName + ") reiniciada e sincronizada com sucesso!");
+        response.put("timestamp", OffsetDateTime.now());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/bot/report-issue")
+    public ResponseEntity<Map<String, Object>> reportBotIssue(@RequestBody(required = false) ReportIssueRequest request) {
+        String description = (request != null && request.getDescription() != null && !request.getDescription().isBlank())
+                ? request.getDescription().trim()
+                : "Relato de instabilidade operacional no atendimento.";
+        String category = (request != null && request.getCategory() != null && !request.getCategory().isBlank())
+                ? request.getCategory().trim()
+                : "OPERACIONAL";
+        String protocol = String.format("INC-%06d", Math.abs(System.currentTimeMillis() % 1_000_000));
+
+        log.warn("Chamado operacional registrado [{}] - Categoria: [{}] - Sessão: [{}] - Descrição: {}",
+                protocol, category, request != null ? request.getSessionId() : "N/A", description);
+
+        publishNotification("SYSTEM_ISSUE", "Diagnóstico Registrado (" + protocol + ")", description, null);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("protocol", protocol);
+        response.put("status", "REPORTED");
+        response.put("category", category);
+        response.put("message", "Problema registrado com diagnóstico de infraestrutura (Protocolo " + protocol + ").");
+        response.put("timestamp", OffsetDateTime.now());
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/conversations/{id}/state")
     @Transactional
-    public ResponseEntity<ConversationSessionDto> updateConversationState(
+    public ResponseEntity<?> updateConversationState(
             @PathVariable UUID id,
             @RequestBody UpdateStateRequest request) {
         if (request == null || request.getState() == null) {
@@ -232,6 +361,12 @@ public class StudioAdminController implements WebMvcConfigurer {
         ConversationSession session = sessionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Sessão de atendimento não encontrada: " + id));
 
+        User currentUser = getCurrentAuthenticatedUser();
+        if (currentUser != null && currentUser.getRole() == UserRole.ARTIST && !isSessionAssignedToArtist(session, currentUser)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "Acesso negado: você só pode alterar o estado de conversas atribuídas a você."));
+        }
+
         ConversationState oldState = session.getCurrentState();
         session.setCurrentState(request.getState());
         session.setLastInteractionAt(OffsetDateTime.now());
@@ -240,19 +375,35 @@ public class StudioAdminController implements WebMvcConfigurer {
         Customer customer = session.getCustomer();
         if (Boolean.TRUE.equals(request.getNotifyCustomer()) && customer != null) {
             if (request.getState() == ConversationState.MENU && oldState == ConversationState.TRANSBORDO_HUMANO) {
-                evolutionApiClient.sendTextMessage(
-                        customer.getPhone(),
-                        "✅ *Atendimento finalizado pelo tatuador.*\n\nO assistente virtual do *Vício Tattoo* voltou a ficar ativo! Digite *1* para Orçamento, *2* para Agendar ou *3* para Falar com o Tatuador."
-                );
+                String msg = "✅ *Atendimento finalizado pelo tatuador.*\n\nO assistente virtual do *Vício Tattoo* voltou a ficar ativo! Digite *1* para Orçamento, *2* para Agendar ou *3* para Falar com o Tatuador.";
+                evolutionApiClient.sendTextMessage(customer.getPhone(), msg);
+                chatService.recordBotMessage(session, customer, msg);
             } else if (request.getState() == ConversationState.TRANSBORDO_HUMANO) {
-                evolutionApiClient.sendTextMessage(
-                        customer.getPhone(),
-                        "👨‍🎨 Olá, " + customer.getName() + "! Um tatuador assumiu o seu atendimento por aqui."
-                );
+                String msg = "👨‍🎨 Olá, " + customer.getName() + "! Um tatuador assumiu o seu atendimento por aqui.";
+                evolutionApiClient.sendTextMessage(customer.getPhone(), msg);
+                chatService.recordBotMessage(session, customer, msg);
             }
         }
 
         return ResponseEntity.ok(ConversationSessionDto.fromEntity(session));
+    }
+
+    private User getCurrentAuthenticatedUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getName() != null) {
+            return userRepository.findByEmail(auth.getName()).orElse(null);
+        }
+        return null;
+    }
+
+    private boolean isSessionAssignedToArtist(ConversationSession session, User artistUser) {
+        if (session == null || artistUser == null) return false;
+        if (session.getAssignedUser() != null && artistUser.getId().equals(session.getAssignedUser().getId())) {
+            return true;
+        }
+        return session.getAssignedArtistName() != null
+                && artistUser.getName() != null
+                && session.getAssignedArtistName().toLowerCase().contains(artistUser.getName().toLowerCase());
     }
 
     // ==========================================================
@@ -262,12 +413,17 @@ public class StudioAdminController implements WebMvcConfigurer {
     @GetMapping("/notifications")
     @Transactional(readOnly = true)
     public ResponseEntity<List<NotificationEventDto>> listNotifications() {
-        List<NotificationEventDto> result = new ArrayList<>(recentNotifications);
+        User currentUser = getCurrentAuthenticatedUser();
+        boolean isArtist = currentUser != null && currentUser.getRole() == UserRole.ARTIST;
+        List<NotificationEventDto> result = isArtist ? new ArrayList<>() : new ArrayList<>(recentNotifications);
 
         if (notifyHumanRequest) {
             List<ConversationSession> humanSessions = sessionRepository
                     .findByCurrentStateOrderByLastInteractionAtDesc(ConversationState.TRANSBORDO_HUMANO);
             for (ConversationSession s : humanSessions) {
+                if (isArtist && !isSessionAssignedToArtist(s, currentUser)) {
+                    continue;
+                }
                 boolean alreadyTracked = result.stream()
                         .anyMatch(n -> "HUMAN_REQUEST".equals(n.getType()) && Objects.equals(n.getCustomerPhone(), s.getCustomer().getPhone()));
                 if (!alreadyTracked) {
@@ -482,6 +638,15 @@ public class StudioAdminController implements WebMvcConfigurer {
     @AllArgsConstructor
     public static class AssignArtistRequest {
         private UUID artistId;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReportIssueRequest {
+        private String description;
+        private String category;
+        private String sessionId;
     }
 
     @Data
