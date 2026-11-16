@@ -133,6 +133,18 @@ export interface CalendarDayColumn {
         <button class="alert-close" (click)="feedbackMessage.set(null)">×</button>
       </div>
 
+      <!-- Mobile Floating Action Button (FAB) -->
+      <button
+        class="mobile-fab"
+        (click)="openCreateModal()"
+        title="Novo Agendamento"
+        aria-label="Criar Novo Agendamento">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+
       <!-- Filters & Search -->
       <div class="controls-card">
         <div class="search-box">
@@ -305,7 +317,7 @@ export interface CalendarDayColumn {
           </thead>
           <tbody>
             <tr *ngFor="let apt of filteredAppointments()">
-              <td>
+              <td data-label="Cliente">
                 <div class="customer-info">
                   <span class="customer-name">{{ apt.customerName }}</span>
                   <a [href]="'https://wa.me/' + apt.customerPhone" target="_blank" class="customer-phone">
@@ -316,29 +328,29 @@ export interface CalendarDayColumn {
                   </a>
                 </div>
               </td>
-              <td>
+              <td data-label="Data & Horário">
                 <div class="date-info">
                   <span class="date-main">{{ formatDate(apt.scheduledStart) }}</span>
                   <span class="time-range">{{ formatTimeRange(apt.scheduledStart, apt.scheduledEnd) }}</span>
                 </div>
               </td>
-              <td>
+              <td data-label="Status">
                 <span [ngClass]="getStatusBadgeClass(apt.status)">
                   <span class="dot"></span>
                   {{ getStatusLabel(apt.status) }}
                 </span>
               </td>
-              <td>
+              <td data-label="Valores">
                 <div class="pricing-info">
                   <span class="total-price">Total: R$ {{ (apt.totalPrice || 0) | number:'1.2-2' }}</span>
                   <span class="deposit-price" *ngIf="apt.depositAmount > 0">Sinal: R$ {{ (apt.depositAmount || 0) | number:'1.2-2' }}</span>
                 </div>
               </td>
-              <td>
+              <td data-label="Tipo">
                 <span *ngIf="apt.isTouchup" class="badge badge-info">Retoque (R$ 0,00)</span>
                 <span *ngIf="!apt.isTouchup" class="badge-regular">Tatuagem Normal</span>
               </td>
-              <td class="text-right">
+              <td data-label="Ações" class="text-right">
                 <div class="action-buttons">
                   <button
                     *ngIf="apt.status === 'AGUARDANDO_PAGAMENTO'"
@@ -1230,32 +1242,107 @@ export interface CalendarDayColumn {
       z-index: 2;
     }
 
+    /* Mobile Floating Action Button (FAB) */
+    .mobile-fab {
+      display: none;
+      position: fixed;
+      bottom: calc(76px + var(--safe-bottom));
+      right: 1.25rem;
+      width: 54px;
+      height: 54px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 8px 24px var(--accent-glow), 0 2px 6px rgba(0, 0, 0, 0.4);
+      cursor: pointer;
+      z-index: 850;
+      align-items: center;
+      justify-content: center;
+      transition: transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+      &:active {
+        transform: scale(0.92);
+      }
+    }
+
     @media (max-width: 768px) {
+      .mobile-fab {
+        display: flex;
+      }
+
       .page-container {
-        padding: 1.25rem 1rem;
+        padding: 1rem 0.85rem calc(80px + var(--safe-bottom));
       }
 
       .page-title {
-        font-size: 1.4rem;
+        font-size: 1.35rem;
       }
 
       .header-actions {
         width: 100%;
         flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .header-actions .btn {
+        flex: 1 1 auto;
       }
 
       .view-switcher {
         width: 100%;
         display: flex;
+        padding: 3px;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: var(--radius-full);
       }
 
       .view-btn {
         flex: 1;
+        min-height: 40px;
+        border-radius: var(--radius-full);
+        font-size: 0.8rem;
+      }
+
+      .metrics-grid {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.25rem;
+
+        .metric-card {
+          flex: 0 0 75%;
+          scroll-snap-align: start;
+          padding: 1rem;
+        }
+      }
+
+      .status-filters {
+        display: flex;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        gap: 0.45rem;
+        padding-bottom: 0.2rem;
+      }
+
+      .filter-chip {
+        white-space: nowrap;
+        flex-shrink: 0;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
       }
 
       .search-box {
         max-width: 100%;
         width: 100%;
+        min-height: 44px;
       }
 
       .week-nav {
@@ -1263,8 +1350,9 @@ export interface CalendarDayColumn {
         flex-wrap: wrap;
         .btn {
           flex: 1 1 auto;
+          min-height: 44px;
           padding: 0.5rem 0.65rem;
-          font-size: 0.78rem;
+          font-size: 0.8rem;
         }
       }
 
@@ -1272,9 +1360,92 @@ export interface CalendarDayColumn {
         grid-template-columns: 1fr;
       }
 
+      /* Mobile Card Layout for Table Rows */
+      .appointments-table-container {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        overflow: visible;
+      }
+
+      .appointments-table,
+      .appointments-table thead,
+      .appointments-table tbody,
+      .appointments-table th,
+      .appointments-table td,
+      .appointments-table tr {
+        display: block;
+      }
+
+      .appointments-table thead {
+        display: none;
+      }
+
+      .appointments-table tr {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-lg);
+        padding: 1.15rem;
+        margin-bottom: 0.85rem;
+        box-shadow: var(--shadow-sm);
+      }
+
+      .appointments-table td {
+        padding: 0.55rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: right;
+        gap: 0.75rem;
+
+        &::before {
+          content: attr(data-label);
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          flex-shrink: 0;
+          text-align: left;
+        }
+
+        &:first-child {
+          padding-top: 0;
+          &::before {
+            display: none;
+          }
+          .customer-info {
+            width: 100%;
+          }
+        }
+
+        &:last-child {
+          border-bottom: none;
+          padding-top: 0.85rem;
+          padding-bottom: 0;
+          justify-content: stretch;
+          &::before {
+            display: none;
+          }
+        }
+      }
+
       .action-buttons {
-        flex-wrap: wrap;
-        justify-content: flex-end;
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+        gap: 0.5rem;
+
+        .btn-action {
+          min-height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.8rem;
+          padding: 0.5rem;
+          border-radius: var(--radius-md);
+        }
       }
     }
   `]

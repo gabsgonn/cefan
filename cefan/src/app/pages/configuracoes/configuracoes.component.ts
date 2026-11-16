@@ -368,37 +368,50 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
       margin-top: 0.25rem;
     }
 
+    /* Apple iOS Segmented Control Tabs */
     .tabs-nav {
       display: flex;
-      gap: 0.75rem;
-      margin-bottom: 1.5rem;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 0.5rem;
+      background: rgba(255, 255, 255, 0.07);
+      padding: 4px;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 4px;
+      margin-bottom: 1.75rem;
+      width: 100%;
+      max-width: 620px;
     }
 
     .tab-btn {
+      flex: 1;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 0.5rem;
-      padding: 0.65rem 1.25rem;
-      background: none;
-      border: 1px solid transparent;
-      border-radius: var(--radius-md);
+      min-height: 44px;
+      padding: 0.55rem 1rem;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-full);
       color: var(--text-secondary);
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      user-select: none;
 
       &:hover {
         color: var(--text-primary);
-        background-color: var(--bg-card);
+      }
+
+      &:active {
+        transform: scale(0.97);
       }
 
       &.active {
-        color: #fff;
+        color: #ffffff;
         background-color: var(--accent-primary);
-        box-shadow: 0 4px 12px var(--accent-glow);
+        box-shadow: 0 4px 14px var(--accent-glow);
+        font-weight: 700;
       }
     }
 
@@ -413,26 +426,30 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
     }
 
     .card {
-      background-color: var(--bg-card);
+      background: var(--bg-card);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
+      border-radius: var(--radius-xl);
       padding: 1.75rem;
-      box-shadow: var(--shadow-sm);
+      box-shadow: var(--shadow-md);
     }
 
     .card-header {
       margin-bottom: 1.5rem;
 
       h3 {
-        font-size: 1.15rem;
+        font-size: 1.2rem;
         font-weight: 700;
+        letter-spacing: -0.02em;
         color: var(--text-primary);
       }
 
       p {
         font-size: 0.85rem;
         color: var(--text-secondary);
-        margin-top: 0.2rem;
+        margin-top: 0.25rem;
+        line-height: 1.4;
       }
     }
 
@@ -447,25 +464,28 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
 
       label {
         display: block;
-        font-size: 0.875rem;
+        font-size: 0.85rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.45rem;
+        letter-spacing: -0.01em;
       }
 
       input, select {
         width: 100%;
-        padding: 0.65rem 0.85rem;
+        min-height: 46px;
+        padding: 0.65rem 0.95rem;
         background-color: var(--bg-surface);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-md);
         color: var(--text-primary);
-        font-size: 0.9rem;
+        font-size: 16px; /* 16px prevents iOS Safari auto-zoom */
         outline: none;
-        transition: border-color 0.2s;
+        transition: border-color 0.2s, box-shadow 0.2s;
 
         &:focus {
           border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px var(--accent-glow);
         }
       }
 
@@ -474,6 +494,7 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         font-size: 0.75rem;
         color: var(--text-muted);
         margin-top: 0.35rem;
+        line-height: 1.35;
       }
     }
 
@@ -482,10 +503,10 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
 
       label {
         display: block;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
         font-weight: 700;
         color: var(--text-primary);
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.45rem;
       }
 
       .template-textarea {
@@ -496,14 +517,15 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         border-radius: var(--radius-md);
         color: var(--text-primary);
         font-family: inherit;
-        font-size: 0.875rem;
+        font-size: 16px; /* 16px prevents iOS Safari auto-zoom */
         line-height: 1.5;
         outline: none;
         resize: vertical;
-        transition: border-color 0.2s;
+        transition: border-color 0.2s, box-shadow 0.2s;
 
         &:focus {
           border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px var(--accent-glow);
         }
       }
 
@@ -512,25 +534,28 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         font-size: 0.75rem;
         color: var(--text-muted);
         margin-top: 0.35rem;
+        line-height: 1.35;
       }
     }
 
+    /* iOS Grouped Inset Toggle */
     .toggle-container {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 1rem 1.25rem;
-      background-color: var(--bg-surface);
+      background: rgba(16, 21, 34, 0.7);
       border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      margin-bottom: 1rem;
+      border-radius: var(--radius-lg);
+      margin-bottom: 1.25rem;
       gap: 1rem;
+      min-height: 56px;
     }
 
     .toggle-text {
       display: flex;
       flex-direction: column;
-      gap: 0.2rem;
+      gap: 0.25rem;
     }
 
     .toggle-title {
@@ -542,14 +567,15 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
     .toggle-desc {
       font-size: 0.775rem;
       color: var(--text-muted);
+      line-height: 1.35;
     }
 
-    /* Switch */
+    /* iOS Native Switch */
     .switch {
       position: relative;
       display: inline-block;
-      width: 44px;
-      height: 24px;
+      width: 52px;
+      height: 32px;
       flex-shrink: 0;
 
       input { opacity: 0; width: 0; height: 0; }
@@ -559,28 +585,31 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #334155;
-      transition: .3s;
+      background-color: rgba(255, 255, 255, 0.16);
+      transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      border: 1px solid rgba(255, 255, 255, 0.08);
 
       &:before {
         position: absolute;
         content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
+        height: 26px;
+        width: 26px;
+        left: 2px;
+        bottom: 2px;
         background-color: white;
-        transition: .3s;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       }
 
       &.round {
-        border-radius: 24px;
+        border-radius: 32px;
         &:before { border-radius: 50%; }
       }
     }
 
     input:checked + .slider {
-      background-color: var(--accent-primary);
+      background-color: var(--color-success);
+      border-color: rgba(48, 209, 88, 0.4);
     }
 
     input:checked + .slider:before {
@@ -603,8 +632,8 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
     }
 
     .simulation-item {
-      padding: 1rem;
-      background-color: var(--bg-surface);
+      padding: 1rem 1.15rem;
+      background: rgba(16, 21, 34, 0.75);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
 
@@ -624,13 +653,55 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
       .sim-price {
         font-size: 0.95rem;
         font-weight: 800;
-        color: #34d399;
+        color: var(--color-success);
       }
 
       .sim-details {
         font-size: 0.775rem;
         color: var(--text-secondary);
-        line-height: 1.4;
+        line-height: 1.45;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .page-container {
+        padding: 1rem 0.85rem calc(76px + var(--safe-bottom));
+      }
+
+      .page-title {
+        font-size: 1.35rem;
+      }
+
+      .tabs-nav {
+        max-width: 100%;
+      }
+
+      .tab-btn {
+        font-size: 0.78rem;
+        padding: 0.5rem 0.65rem;
+        min-height: 44px;
+
+        span {
+          text-align: center;
+        }
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .card {
+        padding: 1.15rem;
+      }
+
+      .card-footer {
+        flex-direction: column;
+
+        .btn {
+          width: 100%;
+          min-height: 48px;
+        }
       }
     }
 

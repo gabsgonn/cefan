@@ -221,6 +221,10 @@ describe('AtendimentosComponent - Live Chat & Resiliência', () => {
     component.openImageZoom('data:image/jpeg;base64,abc123', 'Leão Realismo');
     expect(component.showImageModal()).toBe(true);
     expect(component.zoomImageUrl()).toBe('data:image/jpeg;base64,abc123');
+
+    // Test mobile back navigation returning to conversation list
+    component.clearSelectedSession();
+    expect(component.selectedSession()).toBeNull();
   });
 
   it('should apply quick reply and send agent message', () => {

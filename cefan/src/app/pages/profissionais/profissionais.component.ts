@@ -670,6 +670,99 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    @media (max-width: 768px) {
+      .page-container {
+        padding: 1rem 0.85rem calc(76px + var(--safe-bottom));
+      }
+
+      .page-title {
+        font-size: 1.35rem;
+      }
+
+      .header-actions {
+        width: 100%;
+      }
+
+      .header-actions .btn {
+        width: 100%;
+        min-height: 44px;
+      }
+
+      .metrics-grid {
+        display: flex;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.25rem;
+
+        .metric-card {
+          flex: 0 0 70%;
+          scroll-snap-align: start;
+          padding: 1rem;
+        }
+      }
+
+      .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+      }
+
+      .search-input {
+        min-width: 100%;
+        width: 100%;
+      }
+
+      .search-input input {
+        min-height: 44px;
+      }
+
+      .filter-tabs {
+        width: 100%;
+        display: flex;
+      }
+
+      .tab-btn {
+        flex: 1;
+        min-height: 40px;
+        text-align: center;
+      }
+
+      .professionals-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+
+      .pro-card {
+        padding: 1.15rem;
+      }
+
+      .pro-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+
+        .btn-sm {
+          width: 100%;
+          min-height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.825rem;
+        }
+      }
+
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .full-width {
+        grid-column: span 1;
+      }
+    }
   `]
 })
 export class ProfissionaisComponent implements OnInit {

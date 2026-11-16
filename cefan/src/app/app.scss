@@ -1,4 +1,22 @@
 .main-content {
   min-height: calc(100vh - 70px);
   background-color: var(--bg-main);
+  padding-bottom: calc(76px + var(--safe-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+
+/* When chat session is active full-screen on mobile, eliminate container padding and hide tab bar */
+body:has(.chat-workspace.session-active) {
+  .main-content {
+    padding-bottom: 0 !important;
+  }
+  .mobile-tab-bar {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .main-content {
+    padding-bottom: 2.5rem;
+  }
 }

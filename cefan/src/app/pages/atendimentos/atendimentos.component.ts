@@ -90,7 +90,7 @@ export interface AiAnalysisParsed {
       </div>
 
       <!-- Main Chat Workspace (WhatsApp Web Style) -->
-      <div class="chat-workspace">
+      <div class="chat-workspace" [class.session-active]="selectedSession() !== null">
         <!-- Left Sidebar: Session List -->
         <div class="sessions-sidebar">
           <div class="sidebar-search">
@@ -190,6 +190,17 @@ export interface AiAnalysisParsed {
         <div class="chat-main" *ngIf="selectedSession() as active; else noSessionSelected">
           <!-- Chat Header -->
           <div class="chat-header">
+            <button
+              type="button"
+              class="mobile-back-btn"
+              (click)="clearSelectedSession()"
+              title="Voltar para a lista de conversas"
+              aria-label="Voltar para a lista">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+              <span>Conversas</span>
+            </button>
             <div class="chat-customer-info">
               <div class="chat-avatar">
                 {{ (active.customerName || 'C').charAt(0).toUpperCase() }}
@@ -754,10 +765,15 @@ export interface AiAnalysisParsed {
       padding: 0.85rem 1rem;
       border-bottom: 1px solid var(--border-color);
       cursor: pointer;
-      transition: background 0.15s;
+      transition: background 0.15s, transform 0.1s;
 
       &:hover {
         background-color: var(--bg-card);
+      }
+
+      &:active {
+        background-color: rgba(99, 102, 241, 0.2);
+        transform: scale(0.99);
       }
 
       &.selected {
@@ -1516,10 +1532,179 @@ export interface AiAnalysisParsed {
       }
     }
 
+    .mobile-back-btn {
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-color);
+      color: #818cf8;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.45rem 0.75rem;
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      min-height: 40px;
+      margin-right: 0.35rem;
+      transition: all 0.15s ease;
+
+      &:active {
+        transform: scale(0.92);
+      }
+    }
+
     @media (max-width: 860px) {
       .chat-workspace {
         grid-template-columns: 1fr;
+        height: calc(100vh - 140px);
+        min-height: 520px;
+        border-radius: var(--radius-md);
       }
+
+      .mobile-back-btn {
+        display: inline-flex;
+        min-height: 44px;
+      }
+
+      /* On mobile: full-screen conversation list when no chat is open */
+      .chat-workspace:not(.session-active) .no-selection-panel {
+        display: none !important;
+      }
+      .chat-workspace:not(.session-active) .sessions-sidebar {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* On mobile: true full-screen WhatsApp/iMessage chat window when conversation is open */
+      .chat-workspace.session-active {
+        position: fixed;
+        inset: 0;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100dvh;
+        height: 100vh;
+        border-radius: 0;
+        border: none;
+        z-index: 1000;
+        background: var(--bg-main);
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        box-shadow: none;
+      }
+
+      .chat-workspace.session-active .sessions-sidebar {
+        display: none !important;
+      }
+
+      .chat-workspace.session-active .chat-main {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .chat-workspace.session-active .chat-header {
+        padding: calc(0.65rem + var(--safe-top)) 0.85rem 0.65rem 0.85rem;
+      }
+
+      .chat-workspace.session-active .chat-messages {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .chat-workspace.session-active .chat-input-bar {
+        padding: 0.65rem 0.85rem calc(0.75rem + var(--safe-bottom));
+      }
+
+      .page-container {
+        padding: 1rem 0.85rem calc(76px + var(--safe-bottom));
+      }
+
+      .page-title {
+        font-size: 1.35rem;
+      }
+
+      .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .header-actions .btn {
+        flex: 1 1 auto;
+        min-height: 44px;
+      }
+
+      .chat-header {
+        padding: 0.65rem 0.85rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .chat-customer-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .chat-actions {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 0.4rem;
+        overflow-x: auto;
+        padding-top: 0.25rem;
+        scrollbar-width: none;
+      }
+
+      .chat-actions .btn, .chat-actions .assign-select {
+        min-height: 44px;
+        font-size: 0.775rem;
+        padding: 0.45rem 0.75rem;
+        flex-shrink: 0;
+      }
+
+      .chat-input-bar {
+        padding: 0.65rem 0.75rem calc(0.65rem + var(--safe-bottom));
+      }
+
+      .message-input {
+        min-height: 44px;
+        font-size: 16px; /* 16px prevents iOS Safari auto-zoom */
+      }
+
+      .send-btn {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        flex-shrink: 0;
+      }
+
+      .message-bubble {
+        max-width: 88%;
+        font-size: 0.85rem;
+        padding: 0.65rem 0.85rem;
+      }
+
+      .quick-replies-bar {
+        padding: 0.45rem 0.75rem;
+      }
+
+      .quick-reply-chip {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+      }
+
       .diag-grid {
         grid-template-columns: 1fr;
       }
@@ -1812,6 +1997,10 @@ export class AtendimentosComponent implements OnInit, OnDestroy {
     this.aiCardExpanded.set(true);
     this.clearUnread(s.id);
     this.loadMessages(s.id);
+  }
+
+  clearSelectedSession(): void {
+    this.selectedSession.set(null);
   }
 
   loadMessages(sessionId: string): void {
