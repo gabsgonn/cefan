@@ -31,6 +31,9 @@ export interface AiAnalysisParsed {
   basePrice?: number;
   minPrice?: number;
   maxPrice?: number;
+  priceDisplay?: string;
+  isFechamento?: boolean;
+  assignedArtistName?: string;
   referenceImageUrl?: string;
 }
 
@@ -264,7 +267,10 @@ export interface AiAnalysisParsed {
               </div>
 
               <div class="ai-header-right">
-                <span class="ai-price" *ngIf="art.minPrice && art.maxPrice">
+                <span class="ai-price" *ngIf="art.isFechamento || art.sizeCategory === 'FECHAMENTO' || art.priceDisplay === 'A combinar'">
+                  A combinar
+                </span>
+                <span class="ai-price" *ngIf="!art.isFechamento && art.sizeCategory !== 'FECHAMENTO' && art.priceDisplay !== 'A combinar' && art.minPrice && art.maxPrice">
                   R$ {{ art.minPrice }} a R$ {{ art.maxPrice }}
                 </span>
                 <button type="button" class="collapse-btn" [title]="aiCardExpanded() ? 'Recolher resumo' : 'Expandir resumo'">
@@ -290,13 +296,17 @@ export interface AiAnalysisParsed {
                       <span class="ai-label">Estilo:</span>
                       <span class="ai-value">{{ art.style }}</span>
                     </div>
-                    <div class="ai-metric" *ngIf="art.estimatedSizeCm">
+                    <div class="ai-metric" *ngIf="art.estimatedSizeCm || art.sizeCategory">
                       <span class="ai-label">Tamanho:</span>
-                      <span class="ai-value">{{ art.estimatedSizeCm }} ({{ art.sizeCategory || 'Proporcional' }})</span>
+                      <span class="ai-value">{{ formatArtSize(art) }}</span>
                     </div>
-                    <div class="ai-metric" *ngIf="art.estimatedHours">
+                    <div class="ai-metric" *ngIf="art.estimatedHours && !art.isFechamento && art.sizeCategory !== 'FECHAMENTO'">
                       <span class="ai-label">Tempo de Agulha:</span>
                       <span class="ai-value">~{{ art.estimatedHours }}h</span>
+                    </div>
+                    <div class="ai-metric" *ngIf="art.isFechamento || art.sizeCategory === 'FECHAMENTO' || art.priceDisplay === 'A combinar'">
+                      <span class="ai-label">Valor Estimado:</span>
+                      <span class="ai-value highlight-artist">A combinar com o tatuador</span>
                     </div>
                     <div class="ai-metric" *ngIf="art.suggestedBodyLocation">
                       <span class="ai-label">Local Sugerido:</span>
@@ -1627,7 +1637,17 @@ export class AtendimentosComponent implements OnInit, OnDestroy {
     const active = this.selectedSession();
     if (!active || !active.contextData) return null;
     try {
-      return JSON.parse(active.contextData);
+      const parsed = JSON.parse(active.contextData) as AiAnalysisParsed;
+      if (!parsed || typeof parsed !== 'object') return null;
+      const hasSummaryField = !!(
+        parsed.style ||
+        parsed.sizeCategory ||
+        parsed.estimatedSizeCm ||
+        parsed.isFechamento ||
+        parsed.priceDisplay ||
+        (parsed.minPrice !== undefined && parsed.maxPrice !== undefined)
+      );
+      return hasSummaryField ? parsed : null;
     } catch {
       return null;
     }
@@ -1899,6 +1919,20 @@ export class AtendimentosComponent implements OnInit, OnDestroy {
 
   toggleAiCard(): void {
     this.aiCardExpanded.set(!this.aiCardExpanded());
+  }
+
+  formatArtSize(art: AiAnalysisParsed): string {
+    if (art.estimatedSizeCm) {
+      if (art.sizeCategory) {
+        const normCm = art.estimatedSizeCm.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const normCat = art.sizeCategory.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        if (!normCm.includes(normCat)) {
+          return `${art.estimatedSizeCm} (${art.sizeCategory})`;
+        }
+      }
+      return art.estimatedSizeCm;
+    }
+    return art.sizeCategory || 'Proporcional';
   }
 
   isRenderableImage(mediaUrl?: string): boolean {

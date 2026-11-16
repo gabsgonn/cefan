@@ -6,6 +6,7 @@ import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
+import br.com.cefan.whatsapp.domain.model.TattooSizeOption;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
@@ -72,7 +73,12 @@ public class MenuStateHandler implements ConversationStateHandler {
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
             String customTemplate = (config != null && config.getOrcamentoIntroMessage() != null && !config.getOrcamentoIntroMessage().isBlank())
                     ? config.getOrcamentoIntroMessage()
-                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga:\n• O local do corpo onde deseja tatuar\n• O tamanho aproximado em centímetros (ex: 10cm x 5cm)";
+                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual), informe o local do corpo e escolha uma das opções de tamanho:\n\n"
+                      + TattooSizeOption.buildSizeMenuBlock();
+
+            if (!customTemplate.toLowerCase().contains("fechamento") && !customTemplate.toLowerCase().contains("flash")) {
+                customTemplate = customTemplate.trim() + "\n\n" + TattooSizeOption.buildSizeMenuBlock();
+            }
 
             String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",
                     customer.getName(), customTemplate);

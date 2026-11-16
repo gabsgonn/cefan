@@ -58,4 +58,45 @@ class GeminiVisionClientTest {
         assertNotNull(result.getPrimaryColors());
         assertTrue(result.getPrimaryColors().contains("Preto"));
     }
+
+    @Test
+    void shouldClassifyStructuredSizeCategoriesFromCustomerNotes() {
+        GeminiVisionClient client = new GeminiVisionClient(
+                objectMapper,
+                "",
+                "gemini-1.5-flash",
+                "https://generativelanguage.googleapis.com/v1beta"
+        );
+
+        TattooAnalysisResult flash = client.createFallbackResult("Quero um flash de 4cm no pulso");
+        assertEquals("FLASH", flash.getSizeCategory());
+        assertTrue(flash.getEstimatedSizeCm().contains("Flash / Mini"));
+
+        TattooAnalysisResult media = client.createFallbackResult("Tattoo média no antebraço em blackwork");
+        assertEquals("MEDIA", media.getSizeCategory());
+        assertTrue(media.getEstimatedSizeCm().contains("Média"));
+
+        TattooAnalysisResult fechamento = client.createFallbackResult("Quero um fechamento de braço todo em realismo");
+        assertEquals("FECHAMENTO", fechamento.getSizeCategory());
+        assertTrue(fechamento.getEstimatedSizeCm().contains("Fechamento"));
+        assertTrue(fechamento.getRecommendedArtists().contains("Carlos Silveira"));
+
+        // Não deve dar falso-positivo para palavras que contêm substrings "mini" ou "media" (ex: "feminino", "imediato")
+        assertTrue(br.com.cefan.whatsapp.domain.model.TattooSizeOption.fromInput("Quero um leão com traço feminino no braço").isEmpty());
+        assertTrue(br.com.cefan.whatsapp.domain.model.TattooSizeOption.fromInput("Preciso de atendimento imediato").isEmpty());
+
+        // Deve reconhecer variações naturais como "fechar o braço" e "15 centímetros"
+        assertEquals(
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.FECHAMENTO,
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.fromInput("Quero fechar o braço").orElse(null)
+        );
+        assertEquals(
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.MEDIA,
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.fromInput("Tatuagem de 15 centímetros").orElse(null)
+        );
+        assertEquals(
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.GRANDE,
+                br.com.cefan.whatsapp.domain.model.TattooSizeOption.fromInput("Flash | Grande").orElse(null)
+        );
+    }
 }

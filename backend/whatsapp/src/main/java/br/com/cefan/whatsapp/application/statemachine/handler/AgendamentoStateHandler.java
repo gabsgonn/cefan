@@ -8,6 +8,7 @@ import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
+import br.com.cefan.whatsapp.domain.model.TattooSizeOption;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
@@ -30,8 +31,10 @@ import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -125,11 +128,50 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
             String customTemplate = (tenantConfig != null && tenantConfig.getOrcamentoIntroMessage() != null && !tenantConfig.getOrcamentoIntroMessage().isBlank())
                     ? tenantConfig.getOrcamentoIntroMessage()
-                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual) e nos diga o local do corpo e tamanho aproximado em cm.";
+                    : "Por favor, envie uma *foto da tatuagem* que você deseja fazer (ou uma referência visual), informe o local do corpo e escolha uma das opções de tamanho:\n\n"
+                      + TattooSizeOption.buildSizeMenuBlock();
+            if (!customTemplate.toLowerCase().contains("fechamento") && !customTemplate.toLowerCase().contains("flash")) {
+                customTemplate = customTemplate.trim() + "\n\n" + TattooSizeOption.buildSizeMenuBlock();
+            }
             String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",
                     customer.getName(), customTemplate);
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
             chatService.recordBotMessage(session, customer, reply);
+            return;
+        }
+
+        // Caso seja projeto de Fechamento, o valor é "A combinar" e vai direto para o respectivo tatuador especialista
+        if (TattooSizeOption.fromInput(messageText).filter(opt -> opt == TattooSizeOption.FECHAMENTO).isPresent()
+                || isFechamentoInContext(session.getContextData())) {
+            User assignedArtist = resolveArtist(messageText, session.getContextData());
+            String artistName = (assignedArtist != null) ? assignedArtist.getName() : "Carlos Silveira";
+            if (assignedArtist != null) {
+                session.setAssignedUser(assignedArtist);
+            }
+            session.setAssignedArtistName(artistName);
+            session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+            updateContextForFechamento(session, artistName, messageText);
+
+            String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig);
+            String reply = String.format(
+                    "🎨 *Projeto de Fechamento - Valor A Combinar* 🎨\n\n" +
+                    "Olá, %s! Como projetos de *Fechamento (%s)* têm valor *A combinar* de acordo com a anatomia e sessões, encaminhamos sua conversa diretamente para o nosso tatuador especialista *%s*, que já vai alinhar os horários e detalhes com você por aqui!%s\n\n" +
+                    "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    customer.getName(),
+                    TattooSizeOption.FECHAMENTO.getMeasurementLabel(),
+                    artistName,
+                    absenceNotice
+            );
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "HUMAN_REQUEST",
+                        "Fechamento - " + artistName,
+                        customer.getName() + " solicitou agendamento de Fechamento (A combinar). Encaminhado para " + artistName + ".",
+                        customer.getPhone()
+                );
+            }
             return;
         }
 
@@ -250,25 +292,61 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
     }
 
     private User resolveArtist(String messageText, String contextData) {
-        List<User> artists = userRepository.findAll();
+        List<User> allUsers = userRepository.findAll();
+        List<User> artists = allUsers.stream()
+                .filter(u -> u.getRole() == UserRole.ARTIST && Boolean.TRUE.equals(u.getIsActive()))
+                .toList();
+        if (artists.isEmpty()) {
+            artists = allUsers;
+        }
         String textLower = (messageText != null) ? messageText.toLowerCase() : "";
 
-        // Procura nome de artista citado na mensagem
+        // 1. Procura nome de artista citado na mensagem
         for (User u : artists) {
-            String firstName = u.getName().split(" ")[0].toLowerCase();
-            if (textLower.contains(firstName)) {
+            if (u.getName() == null || u.getName().isBlank()) continue;
+            String firstName = u.getName().split(" ")[0].toLowerCase().replace("'", "");
+            if (textLower.contains(u.getName().toLowerCase()) || textLower.contains(firstName)) {
                 return u;
             }
         }
 
-        // Se não citou pelo nome, tenta buscar recomendação salva no contextData
+        // 2. Procura especialidade correspondente ao estilo citado na mensagem
+        for (User u : artists) {
+            String spec = u.getSpecialties() != null ? u.getSpecialties().toLowerCase() : "";
+            if ((textLower.contains("realismo") || textLower.contains("retrato") || textLower.contains("leão") || textLower.contains("leao") || textLower.contains("lobo")) && spec.contains("realismo")) {
+                return u;
+            }
+            if ((textLower.contains("fineline") || textLower.contains("traço fino") || textLower.contains("traco fino") || textLower.contains("delicada")) && spec.contains("fineline")) {
+                return u;
+            }
+            if ((textLower.contains("blackwork") || textLower.contains("tribal") || textLower.contains("geométrico") || textLower.contains("geometrico")) && spec.contains("blackwork")) {
+                return u;
+            }
+            if ((textLower.contains("aquarela") || textLower.contains("floral") || textLower.contains("botânico") || textLower.contains("botanico") || textLower.contains("colorid")) && spec.contains("aquarela")) {
+                return u;
+            }
+            if ((textLower.contains("old school") || textLower.contains("tradicional")) && spec.contains("old school")) {
+                return u;
+            }
+            if ((textLower.contains("oriental") || textLower.contains("irezumi") || textLower.contains("anime") || textLower.contains("dragão") || textLower.contains("dragao") || textLower.contains("neo tradicional")) && spec.contains("oriental")) {
+                return u;
+            }
+            if ((textLower.contains("pontilhismo") || textLower.contains("mandala")) && spec.contains("pontilhismo")) {
+                return u;
+            }
+            if ((textLower.contains("dark") || textLower.contains("lettering") || textLower.contains("chicano") || textLower.contains("gótico") || textLower.contains("gotico")) && spec.contains("dark")) {
+                return u;
+            }
+        }
+
+        // 3. Se não citou pelo nome ou estilo na mensagem, tenta buscar recomendação salva no contextData
         if (contextData != null && !contextData.isBlank()) {
             try {
                 JsonNode node = objectMapper.readTree(contextData);
                 if (node.has("recommendedArtists") && node.get("recommendedArtists").isArray() && node.get("recommendedArtists").size() > 0) {
                     String recommended = node.get("recommendedArtists").get(0).asText();
                     for (User u : artists) {
-                        if (recommended.toLowerCase().contains(u.getName().split(" ")[0].toLowerCase())) {
+                        if (u.getName() != null && recommended.toLowerCase().contains(u.getName().split(" ")[0].toLowerCase().replace("'", ""))) {
                             return u;
                         }
                     }
@@ -276,11 +354,40 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             } catch (Exception ignored) {}
         }
 
-        // Retorna o primeiro artista ativo se disponível
+        // 4. Retorna o primeiro artista ativo se disponível
         return artists.stream()
                 .filter(u -> u.getRole() == UserRole.ARTIST && Boolean.TRUE.equals(u.getIsActive()))
                 .findFirst()
-                .orElse(null);
+                .orElse(artists.isEmpty() ? null : artists.get(0));
+    }
+
+    private void updateContextForFechamento(ConversationSession session, String artistName, String messageText) {
+        try {
+            Map<String, Object> context = new HashMap<>();
+            if (session.getContextData() != null && !session.getContextData().isBlank()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> existing = objectMapper.readValue(session.getContextData(), Map.class);
+                    context.putAll(existing);
+                } catch (Exception ignored) {
+                }
+            }
+            if (!context.containsKey("style") || context.get("style") == null || String.valueOf(context.get("style")).isBlank()) {
+                context.put("style", "Projeto de Fechamento Autoral");
+            }
+            context.put("sizeCategory", TattooSizeOption.FECHAMENTO.getCategoryKey());
+            context.put("estimatedSizeCm", TattooSizeOption.FECHAMENTO.getFormattedLabel());
+            context.put("isFechamento", true);
+            context.put("priceDisplay", "A combinar");
+            context.put("assignedArtistName", artistName);
+            context.put("recommendedArtists", List.of(artistName));
+            context.remove("basePrice");
+            context.remove("minPrice");
+            context.remove("maxPrice");
+            session.setContextData(objectMapper.writeValueAsString(context));
+        } catch (Exception e) {
+            log.warn("Erro ao atualizar contextData de Fechamento no agendamento: {}", e.getMessage());
+        }
     }
 
     OffsetDateTime parseRequestedSlot(String messageText) {
@@ -503,6 +610,23 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             }
         }
         return candidate;
+    }
+
+    private boolean isFechamentoInContext(String contextData) {
+        if (contextData == null || contextData.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(contextData);
+            if (node.has("isFechamento") && node.get("isFechamento").asBoolean()) {
+                return true;
+            }
+            if (node.hasNonNull("sizeCategory") && "FECHAMENTO".equalsIgnoreCase(node.get("sizeCategory").asText())) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private BigDecimal extractPriceFromContext(String contextData) {

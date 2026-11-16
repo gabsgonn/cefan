@@ -406,6 +406,92 @@ class HomologacaoPilotoE2ETest {
                         .header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].type", hasItem("HUMAN_REQUEST")));
+
+        // =========================================================================
+        // SELEÇÃO DE TAMANHO "FECHAMENTO": Valor "A combinar" + Encaminhamento ao Especialista
+        // =========================================================================
+        when(geminiVisionClient.analyzeTattoo(anyString(), anyString(), anyString()))
+                .thenReturn(TattooAnalysisResult.builder()
+                        .style("Realismo Preto e Cinza")
+                        .sizeCategory("MEDIA")
+                        .estimatedSizeCm("Média (11 a 18 cm)")
+                        .complexityLevel("ALTA")
+                        .complexityMultiplier(1.4)
+                        .estimatedHours(3.5)
+                        .suggestedBodyLocation("Braço")
+                        .technicalNotes("Realismo de alto contraste.")
+                        .recommendedArtists(List.of("Carlos Silveira"))
+                        .primaryColors(List.of("Preto", "Cinza"))
+                        .build());
+
+        // Novo cliente envia foto e depois escolhe opção "E" (Fechamento)
+        String webhookNovoClienteFoto = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541977776666@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-FECHAMENTO-FOTO-001"
+                    },
+                    "pushName": "Rafael Fechamento",
+                    "message": {
+                      "imageMessage": {
+                        "caption": "Quero orçar esse leão em realismo",
+                        "mimetype": "image/jpeg",
+                        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                      }
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookNovoClienteFoto))
+                .andExpect(status().isOk());
+
+        String webhookEscolheFechamento = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541977776666@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-FECHAMENTO-OPCAO-002"
+                    },
+                    "pushName": "Rafael Fechamento",
+                    "message": {
+                      "conversation": "E"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookEscolheFechamento))
+                .andExpect(status().isOk());
+
+        Customer rafael = customerRepository.findByPhone("5541977776666").orElseThrow();
+        ConversationSession rafaelSession = sessionRepository.findByCustomer(rafael).orElseThrow();
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, rafaelSession.getCurrentState());
+        assertEquals("Carlos Silveira", rafaelSession.getAssignedArtistName());
+        assertNotNull(rafaelSession.getAssignedUser());
+        assertEquals("Carlos Silveira", rafaelSession.getAssignedUser().getName());
+
+        JsonNode rafaelCtx = objectMapper.readTree(rafaelSession.getContextData());
+        assertEquals("FECHAMENTO", rafaelCtx.get("sizeCategory").asText());
+        assertEquals("A combinar", rafaelCtx.get("priceDisplay").asText());
+        assertTrue(rafaelCtx.get("isFechamento").asBoolean());
+
+        // Carlos Silveira agora vê a conversa do Rafael atribuída a ele
+        mockMvc.perform(get("/api/v1/conversations")
+                        .header("Authorization", "Bearer " + carlosToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].customerName").value("Rafael Fechamento"))
+                .andExpect(jsonPath("$[0].assignedArtistName").value("Carlos Silveira"));
     }
 
     @Test
@@ -413,7 +499,8 @@ class HomologacaoPilotoE2ETest {
         entityManager.flush();
         org.springframework.jdbc.datasource.init.ResourceDatabasePopulator populator =
                 new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                        new org.springframework.core.io.ClassPathResource("db/migration/V6__operating_hours_and_pix_expiration.sql")
+                        new org.springframework.core.io.ClassPathResource("db/migration/V6__operating_hours_and_pix_expiration.sql"),
+                        new org.springframework.core.io.ClassPathResource("db/migration/V7__structured_tattoo_size_options.sql")
                 );
         populator.populate( org.springframework.jdbc.datasource.DataSourceUtils.getConnection(dataSource));
         entityManager.clear();
@@ -426,5 +513,9 @@ class HomologacaoPilotoE2ETest {
         assertNotNull(config.getAbsenceMessage());
         assertTrue(config.getAbsenceMessage().contains("Estúdio Fora do Horário de Expediente"));
         assertFalse(config.getAbsenceMessage().contains("\\n"), "A migração V6 deve gravar quebras de linha reais e não '\\n' literal");
+        assertNotNull(config.getOrcamentoIntroMessage());
+        assertTrue(config.getOrcamentoIntroMessage().contains("Flash / Mini"));
+        assertTrue(config.getOrcamentoIntroMessage().contains("Fechamento"));
+        assertTrue(config.getOrcamentoIntroMessage().contains("Valor a combinar"));
     }
 }

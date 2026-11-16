@@ -266,4 +266,49 @@ describe('AtendimentosComponent - Live Chat & Resiliência', () => {
     expect(formatted).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(formatted).not.toContain('<img');
   });
+
+  it('should display "A combinar" when session AI analysis is Fechamento', () => {
+    const fechamentoSession: ConversationSession = {
+      ...mockSessions[0],
+      id: 'sess-fechamento',
+      contextData: JSON.stringify({
+        style: 'Realismo Preto e Cinza',
+        sizeCategory: 'FECHAMENTO',
+        estimatedSizeCm: 'Fechamento (26 cm+ / Projeto Amplo)',
+        isFechamento: true,
+        priceDisplay: 'A combinar',
+        recommendedArtists: ['Carlos Silveira']
+      })
+    };
+
+    component.selectSession(fechamentoSession);
+    fixture.detectChanges();
+
+    const art = component.parsedAiAnalysis();
+    expect(art?.isFechamento).toBe(true);
+    expect(art?.priceDisplay).toBe('A combinar');
+    expect(component.formatArtSize(art!)).toBe('Fechamento (26 cm+ / Projeto Amplo)');
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('A combinar');
+  });
+
+  it('should not render blank AI card when contextData only contains pendingNotes and should format accented Média size without duplicating category', () => {
+    const pendingOnlySession: ConversationSession = {
+      ...mockSessions[0],
+      id: 'sess-pending',
+      contextData: JSON.stringify({ pendingNotes: 'Quero tatuar no braço' })
+    };
+
+    component.selectSession(pendingOnlySession);
+    fixture.detectChanges();
+    expect(component.parsedAiAnalysis()).toBeNull();
+
+    expect(
+      component.formatArtSize({
+        sizeCategory: 'MEDIA',
+        estimatedSizeCm: 'Média (11 a 18 cm)'
+      })
+    ).toBe('Média (11 a 18 cm)');
+  });
 });

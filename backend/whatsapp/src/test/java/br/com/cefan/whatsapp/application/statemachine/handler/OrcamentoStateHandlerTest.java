@@ -216,4 +216,153 @@ class OrcamentoStateHandlerTest {
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
         assertTrue(messageCaptor.getValue().contains("Informe o tatuador e data desejada na grade do Vício Tattoo:"));
     }
+
+    @Test
+    void shouldRecalculateQuoteWhenCustomerSelectsSizeOptionAfterSendingPhoto() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("150.00"))
+                .fixedSetupCost(new BigDecimal("50.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        // 1. Cliente já enviou a foto e recebeu análise inicial (salva no contextData)
+        session.setContextData("{\"style\":\"Blackwork / Geométrico\",\"complexityLevel\":\"MEDIA\",\"complexityMultiplier\":1.2,\"estimatedHours\":2.5,\"sizeCategory\":\"MEDIA\",\"estimatedSizeCm\":\"Média (11 a 18 cm)\",\"recommendedArtists\":[\"Lucas 'Blade'\"]}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        // 2. Cliente escolhe opção "A" (Flash / Mini - até 5 cm -> 1.0h)
+        handler.handle(customer, session, webhook, "A");
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+
+        String reply = messageCaptor.getValue();
+        assertTrue(reply.contains("Flash / Mini (até 5 cm)"));
+        assertTrue(reply.contains("1,0h de agulha") || reply.contains("1.0h de agulha"));
+        assertTrue(session.getContextData().contains("\"sizeCategory\":\"FLASH\""));
+    }
+
+    @Test
+    void shouldSetPriceACombinarAndForwardToSpecialistArtistWhenFechamentoIsSelected() {
+        br.com.cefan.whatsapp.domain.repository.UserRepository userRepository = mock(br.com.cefan.whatsapp.domain.repository.UserRepository.class);
+        br.com.cefan.whatsapp.api.controller.StudioAdminController adminController = mock(br.com.cefan.whatsapp.api.controller.StudioAdminController.class);
+
+        br.com.cefan.whatsapp.domain.model.User carlos = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Carlos Silveira")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .specialties("Realismo Preto e Cinza, Retratos")
+                .isActive(true)
+                .build();
+        when(userRepository.findAll()).thenReturn(List.of(carlos));
+
+        OrcamentoStateHandler handlerWithUsers = new OrcamentoStateHandler(
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, adminController, userRepository);
+
+        session.setContextData("{\"style\":\"Realismo Preto e Cinza\",\"complexityLevel\":\"ALTA\",\"complexityMultiplier\":1.4,\"estimatedHours\":3.5,\"recommendedArtists\":[\"Carlos Silveira\"]}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        // Cliente escolhe "Fechamento" (ou "E")
+        handlerWithUsers.handle(customer, session, webhook, "Fechamento");
+
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        assertEquals(carlos, session.getAssignedUser());
+        assertEquals("Carlos Silveira", session.getAssignedArtistName());
+        assertTrue(session.getContextData().contains("\"priceDisplay\":\"A combinar\""));
+        assertTrue(session.getContextData().contains("\"isFechamento\":true"));
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+
+        String reply = messageCaptor.getValue();
+        assertTrue(reply.contains("Fechamento (26 cm+ / Projeto Amplo)"));
+        assertTrue(reply.contains("*A combinar*"));
+        assertTrue(reply.contains("Carlos Silveira"));
+        verify(adminController).publishNotification(eq("HUMAN_REQUEST"), contains("Carlos Silveira"), contains("A combinar"), eq("5511988888888"));
+    }
+
+    @Test
+    void shouldApplyLatestSizeWhenCustomerChangesSizeBeforeSendingPhoto() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("150.00"))
+                .fixedSetupCost(new BigDecimal("50.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        EvolutionWebhookRequest textWebhook = new EvolutionWebhookRequest();
+        textWebhook.setInstance("cefan-studio");
+
+        // 1. Cliente escolhe "Flash" inicialmente e depois troca para "Grande" antes de enviar a foto
+        handler.handle(customer, session, textWebhook, "Flash");
+        handler.handle(customer, session, textWebhook, "Grande");
+
+        TattooAnalysisResult analysis = TattooAnalysisResult.builder()
+                .style("Blackwork / Geométrico")
+                .sizeCategory("PEQUENA")
+                .estimatedSizeCm("6x4 cm")
+                .complexityLevel("MEDIA")
+                .complexityMultiplier(1.2)
+                .estimatedHours(1.5)
+                .recommendedArtists(List.of("Lucas 'Blade'"))
+                .build();
+        when(geminiVisionClient.analyzeTattoo(any(), any(), any())).thenReturn(analysis);
+
+        EvolutionWebhookRequest imageWebhook = new EvolutionWebhookRequest();
+        imageWebhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        content.setImageMessage(new EvolutionWebhookRequest.ImageMessage());
+        data.setMessage(content);
+        imageWebhook.setData(data);
+
+        // 2. Cliente envia a foto sem legenda -> deve prevalecer "Grande" (4.0h) e não "Flash" ou "Pequena"
+        handler.handle(customer, session, imageWebhook, "");
+
+        assertTrue(session.getContextData().contains("\"sizeCategory\":\"GRANDE\""));
+        assertTrue(session.getContextData().contains("\"estimatedHours\":4.0"));
+    }
+
+    @Test
+    void shouldRouteToUpdatedSpecialistWhenCustomerSwitchesStyleBeforeSelectingFechamento() {
+        br.com.cefan.whatsapp.domain.repository.UserRepository userRepository = mock(br.com.cefan.whatsapp.domain.repository.UserRepository.class);
+        br.com.cefan.whatsapp.api.controller.StudioAdminController adminController = mock(br.com.cefan.whatsapp.api.controller.StudioAdminController.class);
+
+        br.com.cefan.whatsapp.domain.model.User mariana = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Mariana Rocha")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .specialties("Fineline, Traço Fino, Delicadas")
+                .isActive(true)
+                .build();
+        br.com.cefan.whatsapp.domain.model.User carlos = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Carlos Silveira")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .specialties("Realismo Preto e Cinza, Retratos")
+                .isActive(true)
+                .build();
+        when(userRepository.findAll()).thenReturn(List.of(mariana, carlos));
+
+        OrcamentoStateHandler handlerWithUsers = new OrcamentoStateHandler(
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, adminController, userRepository);
+
+        // 1. Foto 1 era Fineline (Mariana Rocha)
+        session.setContextData("{\"style\":\"Fineline / Traço Fino\",\"complexityLevel\":\"BAIXA\",\"complexityMultiplier\":1.05,\"estimatedHours\":1.0,\"recommendedArtists\":[\"Mariana Rocha\"]}");
+
+        // 2. Cliente decide fechar o braço em Realismo
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        handlerWithUsers.handle(customer, session, webhook, "Quero fechamento de braço em realismo");
+
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        assertEquals(carlos, session.getAssignedUser());
+        assertEquals("Carlos Silveira", session.getAssignedArtistName());
+        assertTrue(session.getContextData().contains("\"style\":\"Realismo Preto e Cinza\""));
+        assertTrue(session.getContextData().contains("\"priceDisplay\":\"A combinar\""));
+    }
 }

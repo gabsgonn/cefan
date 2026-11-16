@@ -155,7 +155,7 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
           <div class="simulation-list">
             <div class="simulation-item">
               <div class="sim-header">
-                <span class="sim-badge">Tatuagem Pequena (1 hora)</span>
+                <span class="sim-badge">A • Flash / Mini (até 5 cm • ~1h)</span>
                 <span class="sim-price">R$ {{ (config.fixedSetupCost + config.defaultHourlyRate * 1) | number:'1.2-2' }}</span>
               </div>
               <p class="sim-details">
@@ -167,13 +167,47 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
 
             <div class="simulation-item">
               <div class="sim-header">
-                <span class="sim-badge">Tatuagem Média (2,5 horas)</span>
+                <span class="sim-badge">B • Pequena (6 a 10 cm • ~1,5h)</span>
+                <span class="sim-price">R$ {{ (config.fixedSetupCost + config.defaultHourlyRate * 1.5) | number:'1.2-2' }}</span>
+              </div>
+              <p class="sim-details">
+                Setup (R$ {{ config.fixedSetupCost | number:'1.2-2' }}) + 1,5h (R$ {{ (config.defaultHourlyRate * 1.5) | number:'1.2-2' }})
+                <br>Sinal exigido ({{ config.signalPercentage || 30 }}%):
+                <strong>R$ {{ ((config.fixedSetupCost + config.defaultHourlyRate * 1.5) * ((config.signalPercentage || 30) / 100)) | number:'1.2-2' }}</strong>
+              </p>
+            </div>
+
+            <div class="simulation-item">
+              <div class="sim-header">
+                <span class="sim-badge">C • Média (11 a 18 cm • ~2,5h)</span>
                 <span class="sim-price">R$ {{ (config.fixedSetupCost + config.defaultHourlyRate * 2.5) | number:'1.2-2' }}</span>
               </div>
               <p class="sim-details">
                 Setup (R$ {{ config.fixedSetupCost | number:'1.2-2' }}) + 2.5h (R$ {{ (config.defaultHourlyRate * 2.5) | number:'1.2-2' }})
                 <br>Sinal exigido ({{ config.signalPercentage || 30 }}%):
                 <strong>R$ {{ ((config.fixedSetupCost + config.defaultHourlyRate * 2.5) * ((config.signalPercentage || 30) / 100)) | number:'1.2-2' }}</strong>
+              </p>
+            </div>
+
+            <div class="simulation-item">
+              <div class="sim-header">
+                <span class="sim-badge">D • Grande (19 a 25 cm • ~4h)</span>
+                <span class="sim-price">R$ {{ (config.fixedSetupCost + config.defaultHourlyRate * 4) | number:'1.2-2' }}</span>
+              </div>
+              <p class="sim-details">
+                Setup (R$ {{ config.fixedSetupCost | number:'1.2-2' }}) + 4h (R$ {{ (config.defaultHourlyRate * 4) | number:'1.2-2' }})
+                <br>Sinal exigido ({{ config.signalPercentage || 30 }}%):
+                <strong>R$ {{ ((config.fixedSetupCost + config.defaultHourlyRate * 4) * ((config.signalPercentage || 30) / 100)) | number:'1.2-2' }}</strong>
+              </p>
+            </div>
+
+            <div class="simulation-item">
+              <div class="sim-header">
+                <span class="sim-badge">E • Fechamento (26 cm+ / Projeto Amplo)</span>
+                <span class="sim-price">A combinar</span>
+              </div>
+              <p class="sim-details">
+                Encaminhamento automático para o <strong>Tatuador Especialista</strong> recomendado pela IA (Transbordo Humano).
               </p>
             </div>
           </div>
@@ -656,7 +690,7 @@ export class ConfiguracoesComponent implements OnInit {
     closingTime: '20:00',
     workingDays: 'SEG-SAB',
     welcomeMessage: '👋 Olá! Seja muito bem-vindo(a) ao *Vício Tattoo CWB*!\nEu sou a assistente virtual e estou aqui para agilizar seu atendimento:\n\n1️⃣ *Solicitar Orçamento com IA* (Envie foto da ideia)\n2️⃣ *Agendar Horário / Ver Disponibilidade*\n3️⃣ *Falar com um Tatuador / Dúvidas*\n4️⃣ *Nossos Artistas e Portfólio*\n\nDigite o número da opção desejada:',
-    orcamentoIntroMessage: '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto ou imagem de referência* da tatuagem que você deseja fazer.\n\nSe preferir, adicione também:\n- Tamanho aproximado em centímetros (ex: 10cm)\n- Local do corpo pretendido (ex: antebraço, ombro)',
+    orcamentoIntroMessage: '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto da tatuagem* (ou referência visual) que você deseja fazer, informe o local do corpo e escolha uma das nossas *opções de tamanho*:\n\n📏 *Opções de Tamanho da Tatuagem:*\n• Digite *A* (ou *Flash*) — *Flash / Mini* (até 5 cm)\n• Digite *B* (ou *Pequena*) — *Pequena* (6 a 10 cm)\n• Digite *C* (ou *Média*) — *Média* (11 a 18 cm)\n• Digite *D* (ou *Grande*) — *Grande* (19 a 25 cm)\n• Digite *E* (ou *Fechamento*) — *Fechamento* (26 cm+ / Projeto Amplo — _Valor a combinar_)',
     agendamentoIntroMessage: '📅 *Agendamento de Sessão*\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)',
     pixPaymentMessage: '🗓️ *Pré-Agendamento Criado!*\n\nBloqueamos seu horário na grade. Para confirmar, efetue o pagamento do sinal de 30% via PIX copia e cola abaixo.',
     humanTransferMessage: '💬 *Transbordo para Atendimento Humano*\n\nUm dos nossos tatuadores foi notificado e já vai assumir seu atendimento por aqui em instantes. Aguarde só um momento!',
@@ -758,7 +792,9 @@ export class ConfiguracoesComponent implements OnInit {
             closingTime: data.closingTime || '20:00',
             workingDays: data.workingDays || 'SEG-SAB',
             welcomeMessage: data.welcomeMessage || this.config.welcomeMessage,
-            orcamentoIntroMessage: data.orcamentoIntroMessage || this.config.orcamentoIntroMessage,
+            orcamentoIntroMessage: (data.orcamentoIntroMessage && !data.orcamentoIntroMessage.includes('Tamanho aproximado em centímetros'))
+              ? data.orcamentoIntroMessage
+              : this.config.orcamentoIntroMessage,
             agendamentoIntroMessage: data.agendamentoIntroMessage || this.config.agendamentoIntroMessage,
             pixPaymentMessage: data.pixPaymentMessage || this.config.pixPaymentMessage,
             humanTransferMessage: data.humanTransferMessage || this.config.humanTransferMessage,
@@ -799,7 +835,7 @@ export class ConfiguracoesComponent implements OnInit {
 
   restoreDefaultTemplates(): void {
     this.config.welcomeMessage = '👋 Olá! Seja muito bem-vindo(a) ao *Vício Tattoo CWB*!\nEu sou a assistente virtual e estou aqui para agilizar seu atendimento:\n\n1️⃣ *Solicitar Orçamento com IA* (Envie foto da ideia)\n2️⃣ *Agendar Horário / Ver Disponibilidade*\n3️⃣ *Falar com um Tatuador / Dúvidas*\n4️⃣ *Nossos Artistas e Portfólio*\n\nDigite o número da opção desejada:';
-    this.config.orcamentoIntroMessage = '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto ou imagem de referência* da tatuagem que você deseja fazer.\n\nSe preferir, adicione também:\n- Tamanho aproximado em centímetros (ex: 10cm)\n- Local do corpo pretendido (ex: antebraço, ombro)';
+    this.config.orcamentoIntroMessage = '📸 *Envio de Referência para Orçamento*\n\nPor favor, envie uma *foto da tatuagem* (ou referência visual) que você deseja fazer, informe o local do corpo e escolha uma das nossas *opções de tamanho*:\n\n📏 *Opções de Tamanho da Tatuagem:*\n• Digite *A* (ou *Flash*) — *Flash / Mini* (até 5 cm)\n• Digite *B* (ou *Pequena*) — *Pequena* (6 a 10 cm)\n• Digite *C* (ou *Média*) — *Média* (11 a 18 cm)\n• Digite *D* (ou *Grande*) — *Grande* (19 a 25 cm)\n• Digite *E* (ou *Fechamento*) — *Fechamento* (26 cm+ / Projeto Amplo — _Valor a combinar_)';
     this.config.agendamentoIntroMessage = '📅 *Agendamento de Sessão*\n\nNossa equipe conta com 11 artistas especialistas. Para verificar a melhor data:\nQual dia da semana ou período você tem preferência? (ex: próxima sexta à tarde, sábado pela manhã)';
     this.config.pixPaymentMessage = '🗓️ *Pré-Agendamento Criado!*\n\nBloqueamos seu horário na grade. Para confirmar, efetue o pagamento do sinal de 30% via PIX copia e cola abaixo.';
     this.config.humanTransferMessage = '💬 *Transbordo para Atendimento Humano*\n\nUm dos nossos tatuadores foi notificado e já vai assumir seu atendimento por aqui em instantes. Aguarde só um momento!';

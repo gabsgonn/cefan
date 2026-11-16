@@ -139,6 +139,9 @@ describe('ConfiguracoesComponent - Parametrização Global & Diagnóstico', () =
     component.restoreDefaultTemplates();
 
     expect(component.config.welcomeMessage).toContain('Vício Tattoo CWB');
+    expect(component.config.orcamentoIntroMessage).toContain('Flash / Mini');
+    expect(component.config.orcamentoIntroMessage).toContain('Fechamento');
+    expect(component.config.orcamentoIntroMessage).toContain('Valor a combinar');
     expect(component.config.pixPaymentMessage).toContain('Pré-Agendamento Criado');
     expect(component.config.absenceMessage).toContain('Segunda a Sábado');
   });
