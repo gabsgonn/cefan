@@ -565,13 +565,25 @@ class HomologacaoPilotoE2ETest {
                         new org.springframework.core.io.ClassPathResource("db/migration/V6__operating_hours_and_pix_expiration.sql"),
                         new org.springframework.core.io.ClassPathResource("db/migration/V7__structured_tattoo_size_options.sql"),
                         new org.springframework.core.io.ClassPathResource("db/migration/V9__fix_literal_newlines_in_tenant_messages.sql"),
-                        new org.springframework.core.io.ClassPathResource("db/migration/V12__simplify_orcamento_intro_message.sql")
+                        new org.springframework.core.io.ClassPathResource("db/migration/V12__simplify_orcamento_intro_message.sql"),
+                        new org.springframework.core.io.ClassPathResource("db/migration/V14__add_quote_display_toggles_to_tenant_configs.sql")
                 );
         populator.populate( org.springframework.jdbc.datasource.DataSourceUtils.getConnection(dataSource));
         entityManager.clear();
 
         TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElseThrow();
         assertNotNull(config.getPixExpirationMinutes());
+        assertTrue(config.getOrcamentoShowGreeting());
+        assertTrue(config.getOrcamentoShowStyle());
+        assertTrue(config.getOrcamentoShowSize());
+        assertTrue(config.getOrcamentoShowDuration());
+        assertTrue(config.getOrcamentoShowComplexity());
+        assertTrue(config.getOrcamentoShowLocation());
+        assertTrue(config.getOrcamentoShowArtists());
+        assertTrue(config.getOrcamentoShowDescription());
+        assertTrue(config.getOrcamentoShowPrice());
+        assertTrue(config.getOrcamentoShowMaterialsNote());
+        assertTrue(config.getOrcamentoShowAdjustHint());
         assertNotNull(config.getOpeningTime());
         assertNotNull(config.getClosingTime());
         assertNotNull(config.getWorkingDays());
@@ -585,5 +597,150 @@ class HomologacaoPilotoE2ETest {
         assertNotNull(config.getOrcamentoIntroMessage());
         assertFalse(config.getOrcamentoIntroMessage().contains("Digite *A*"), "A migração V12 deve remover a escolha A-E da frente do orçamento");
         assertTrue(config.getOrcamentoIntroMessage().contains("foto da tatuagem"));
+    }
+
+    @Test
+    void shouldCompleteOldSchoolPantherIntegrationFlowAndHideRemainingBalanceWhenShowPriceIsFalse() throws Exception {
+        // 1. Dono desativa orcamentoShowPrice no tenant_configs via endpoint PUT /api/v1/tenant-configs
+        TenantConfigDto customToggleConfig = TenantConfigDto.builder()
+                .studioName("Vício Tattoo CWB")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .absorbCreditCardFees(true)
+                .signalPercentage(new BigDecimal("30.00"))
+                .minDepositAmount(new BigDecimal("50.00"))
+                .pixExpirationMinutes(120)
+                .openingTime("10:00")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .orcamentoShowGreeting(true)
+                .orcamentoShowStyle(true)
+                .orcamentoShowSize(true)
+                .orcamentoShowDuration(true)
+                .orcamentoShowComplexity(true)
+                .orcamentoShowLocation(true)
+                .orcamentoShowArtists(true)
+                .orcamentoShowDescription(true)
+                .orcamentoShowPrice(false)
+                .orcamentoShowMaterialsNote(true)
+                .orcamentoShowAdjustHint(true)
+                .build();
+
+        mockMvc.perform(put("/api/v1/tenant-configs")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(customToggleConfig)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orcamentoShowPrice").value(false))
+                .andExpect(jsonPath("$.orcamentoShowStyle").value(true));
+
+        // 2. Foto da pantera old school -> estilo Old School / Tradicional e tatuador Rodrigo Old School
+        when(geminiVisionClient.analyzeTattoo(anyString(), anyString(), anyString()))
+                .thenReturn(TattooAnalysisResult.builder()
+                        .style("Old School / Tradicional")
+                        .sizeCategory("MEDIA")
+                        .estimatedSizeCm("Média (11 a 18 cm)")
+                        .complexityLevel("MEDIA")
+                        .complexityMultiplier(1.2)
+                        .estimatedHours(2.5)
+                        .detectedBodyLocation("Antebraço")
+                        .suggestedBodyLocation("Panturrilha ou Braço")
+                        .customerDescription("Pantera negra clássica tradicional com traços firmes e cores vibrantes.")
+                        .technicalNotes("Contorno Bold Line 11RL e preenchimento sólido com Magnum.")
+                        .recommendedArtists(List.of("Rodrigo Old School"))
+                        .primaryColors(List.of("Preto", "Vermelho", "Amarelo"))
+                        .fallback(false)
+                        .build());
+
+        String webhookPantera = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541966665555@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-PANTERA-001"
+                    },
+                    "pushName": "Lucas Pantera",
+                    "message": {
+                      "imageMessage": {
+                        "caption": "Quero tatuar essa pantera old school no antebraço",
+                        "mimetype": "image/jpeg",
+                        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                      }
+                    }
+                  }
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookPantera))
+                .andExpect(status().isOk());
+
+        Customer lucas = customerRepository.findByPhone("5541966665555").orElseThrow();
+        ConversationSession lucasSession = sessionRepository.findByCustomer(lucas).orElseThrow();
+        List<ChatMessage> msgsAfterPhoto = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(lucasSession.getId());
+
+        // Verifica que enviou aviso imediato "Recebi sua foto" e depois o orçamento com estilo Old School / Tradicional, sem preço e sem technicalNotes
+        assertTrue(msgsAfterPhoto.stream().anyMatch(m -> m.getContent().contains("Recebi sua foto")));
+        ChatMessage quoteBotMsg = msgsAfterPhoto.get(msgsAfterPhoto.size() - 1);
+        assertTrue(quoteBotMsg.getContent().contains("Old School / Tradicional"));
+        assertTrue(quoteBotMsg.getContent().contains("Rodrigo Old School"));
+        assertTrue(quoteBotMsg.getContent().contains("Pantera negra clássica tradicional"));
+        assertFalse(quoteBotMsg.getContent().contains("11RL"), "technicalNotes fica apenas no painel para o tatuador");
+        assertFalse(quoteBotMsg.getContent().contains("Faixa de Preço Estimada"), "orcamentoShowPrice=false deve ocultar o preço");
+
+        // No painel (contextData), technicalNotes continua disponível para o tatuador
+        JsonNode savedCtx = objectMapper.readTree(lucasSession.getContextData());
+        assertEquals("Old School / Tradicional", savedCtx.get("style").asText());
+        assertTrue(savedCtx.get("technicalNotes").asText().contains("11RL"));
+
+        // 3. Cliente agenda a sessão e gera PIX -> com orcamentoShowPrice=false, o resumo PIX exibe o Sinal mas NÃO exibe o Saldo Restante
+        when(mercadoPagoPaymentClient.createPixPayment(any(), any(), any(), any(), any()))
+                .thenReturn(MercadoPagoPaymentResponse.builder()
+                        .id(999888777L)
+                        .status("pending")
+                        .transactionAmount(new BigDecimal("180.00"))
+                        .pointOfInteraction(MercadoPagoPaymentResponse.PointOfInteraction.builder()
+                                .transactionData(MercadoPagoPaymentResponse.TransactionData.builder()
+                                        .qrCode("000201PIX-PANTERA-OLD-SCHOOL")
+                                        .build())
+                                .build())
+                        .build());
+
+        for (String stepInput : List.of("1", "sim", "próxima sexta", "14h")) {
+            String stepPayload = String.format("""
+                    {
+                      "event": "messages.upsert",
+                      "instance": "cefan-studio",
+                      "data": {
+                        "key": {
+                          "remoteJid": "5541966665555@s.whatsapp.net",
+                          "fromMe": false,
+                          "id": "WAMID-STEP-%s"
+                        },
+                        "pushName": "Lucas Pantera",
+                        "message": {
+                          "conversation": "%s"
+                        }
+                      }
+                    }
+                    """, stepInput.hashCode(), stepInput);
+            mockMvc.perform(post("/api/v1/webhooks/evolution")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(stepPayload))
+                    .andExpect(status().isOk());
+        }
+
+        List<ChatMessage> allLucasMsgs = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(lucasSession.getId());
+        ChatMessage pixSummaryMsg = allLucasMsgs.stream()
+                .filter(m -> m.getContent().contains("Pré-Agendamento Criado") || m.getContent().contains("Sinal de Reserva:"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(pixSummaryMsg.getContent().contains("Sinal de Reserva:"));
+        assertFalse(pixSummaryMsg.getContent().contains("Saldo Restante:"),
+                "Quando orcamentoShowPrice=false, a mensagem de pré-agendamento/PIX não deve exibir o Saldo Restante para não revelar o total");
     }
 }

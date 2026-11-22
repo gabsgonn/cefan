@@ -7,17 +7,27 @@ import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.GeminiGenerateContentRequest;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.GeminiGenerateContentResponse;
 import br.com.cefan.whatsapp.infrastructure.ai.dto.TattooAnalysisResult;
+import br.com.cefan.whatsapp.application.statemachine.handler.QuoteMessageBuilder;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -26,7 +36,18 @@ public class GeminiVisionClient {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final String apiKey;
+    @Getter
     private final String model;
+    @Getter
+    private final String fallbackModel;
+    @Getter
+    private final int maxAttemptsPerModel;
+    @Getter
+    private final long initialBackoffMs;
+    @Getter
+    private final int timeoutMs;
+    @Getter
+    private final String thinkingLevel;
     private final UserRepository userRepository;
 
     public GeminiVisionClient(
@@ -34,23 +55,69 @@ public class GeminiVisionClient {
             String apiKey,
             String model,
             String baseUrl) {
-        this(objectMapper, apiKey, model, baseUrl, null);
+        this(objectMapper, apiKey, model, null, baseUrl, null, 2, 300L, 18000, "low");
+    }
+
+    public GeminiVisionClient(
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String baseUrl,
+            UserRepository userRepository) {
+        this(objectMapper, apiKey, model, null, baseUrl, userRepository, 2, 300L, 18000, "low");
     }
 
     @Autowired
     public GeminiVisionClient(
             ObjectMapper objectMapper,
             @Value("${gemini.api.key:}") String apiKey,
-            @Value("${gemini.api.model:gemini-2.5-flash}") String model,
+            @Value("${gemini.api.model:gemini-3.5-flash}") String model,
+            @Value("${gemini.api.fallback-model:gemini-3.5-flash-lite}") String fallbackModel,
             @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            @Value("${gemini.api.max-attempts:2}") int maxAttemptsPerModel,
+            @Value("${gemini.api.backoff-ms:500}") long initialBackoffMs,
+            @Value("${gemini.api.timeout-ms:18000}") int timeoutMs,
+            @Value("${gemini.api.thinking-level:low}") String thinkingLevel) {
         this.objectMapper = objectMapper;
         this.apiKey = (apiKey != null) ? apiKey.trim() : "";
-        this.model = model;
+        this.model = (model != null && !model.isBlank()) ? model.trim() : "gemini-3.5-flash";
+        this.fallbackModel = resolveFallbackModel(this.model, fallbackModel);
         this.userRepository = userRepository;
+        this.maxAttemptsPerModel = Math.max(1, maxAttemptsPerModel);
+        this.initialBackoffMs = Math.max(0L, initialBackoffMs);
+        this.timeoutMs = Math.max(1000, timeoutMs);
+        this.thinkingLevel = (thinkingLevel != null) ? thinkingLevel.trim() : "";
+
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofMillis(Math.min(5000, this.timeoutMs)));
+        requestFactory.setReadTimeout(Duration.ofMillis(this.timeoutMs));
+
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
                 .build();
+    }
+
+    private static String resolveFallbackModel(String primaryModel, String configuredFallback) {
+        if (configuredFallback != null && !configuredFallback.isBlank()) {
+            return configuredFallback.trim();
+        }
+        if (primaryModel != null && !primaryModel.endsWith("-lite")) {
+            return primaryModel + "-lite";
+        }
+        return "gemini-3.5-flash-lite";
+    }
+
+    public List<String> getModelChain() {
+        Set<String> chain = new LinkedHashSet<>();
+        if (model != null && !model.isBlank()) {
+            chain.add(model);
+        }
+        if (fallbackModel != null && !fallbackModel.isBlank()) {
+            chain.add(fallbackModel);
+        }
+        return new ArrayList<>(chain);
     }
 
     public TattooAnalysisResult analyzeTattoo(String base64Image, String mimeType, String customerNotes) {
@@ -64,65 +131,215 @@ public class GeminiVisionClient {
             return createFallbackResult(customerNotes);
         }
 
-        try {
-            String sanitizedBase64 = sanitizeBase64(base64Image);
-            String effectiveMimeType = (mimeType != null && !mimeType.isBlank()) ? mimeType : "image/jpeg";
+        String sanitizedBase64 = sanitizeBase64(base64Image);
+        String effectiveMimeType = (mimeType != null && !mimeType.isBlank()) ? mimeType : "image/jpeg";
+        String prompt = buildPrompt(customerNotes);
 
-            String prompt = buildPrompt(customerNotes);
+        GeminiGenerateContentRequest.Part textPart = GeminiGenerateContentRequest.Part.builder()
+                .text(prompt)
+                .build();
 
-            GeminiGenerateContentRequest.Part textPart = GeminiGenerateContentRequest.Part.builder()
-                    .text(prompt)
-                    .build();
+        GeminiGenerateContentRequest.Part imagePart = GeminiGenerateContentRequest.Part.builder()
+                .inlineData(GeminiGenerateContentRequest.InlineData.builder()
+                        .mimeType(effectiveMimeType)
+                        .data(sanitizedBase64)
+                        .build())
+                .build();
 
-            GeminiGenerateContentRequest.Part imagePart = GeminiGenerateContentRequest.Part.builder()
-                    .inlineData(GeminiGenerateContentRequest.InlineData.builder()
-                            .mimeType(effectiveMimeType)
-                            .data(sanitizedBase64)
-                            .build())
-                    .build();
+        List<String> modelsToTry = getModelChain();
+        boolean sawTimeout = false;
 
-            GeminiGenerateContentRequest requestBody = GeminiGenerateContentRequest.builder()
-                    .contents(List.of(
-                            GeminiGenerateContentRequest.Content.builder()
-                                    .parts(List.of(textPart, imagePart))
-                                    .build()
-                    ))
-                    .generationConfig(GeminiGenerateContentRequest.GenerationConfig.builder()
-                            .responseMimeType("application/json")
-                            .temperature(0.2)
-                            .build())
-                    .build();
+        for (int modelIdx = 0; modelIdx < modelsToTry.size(); modelIdx++) {
+            String candidateModel = modelsToTry.get(modelIdx);
+            GeminiGenerateContentRequest requestBody = buildRequestForModel(textPart, imagePart, candidateModel);
 
-            log.info("Enviando imagem para análise com Google Gemini Vision ({}, {} bytes base64)", model, sanitizedBase64.length());
+            for (int attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
+                long startNs = System.nanoTime();
+                log.info("GEMINI_STEP [action=REQUEST, model={}, attempt={}/{}, base64Bytes={}, thinkingLevel={}]",
+                        candidateModel, attempt, maxAttemptsPerModel, sanitizedBase64.length(),
+                        resolveEffectiveThinkingDescription(candidateModel));
 
-            GeminiGenerateContentResponse response = restClient.post()
-                    .uri("/models/{model}:generateContent?key={apiKey}", model, apiKey)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(requestBody)
-                    .retrieve()
-                    .body(GeminiGenerateContentResponse.class);
+                try {
+                    GeminiGenerateContentResponse response = restClient.post()
+                            .uri("/models/{model}:generateContent?key={apiKey}", candidateModel, apiKey)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(requestBody)
+                            .retrieve()
+                            .body(GeminiGenerateContentResponse.class);
 
-            if (response != null) {
-                String rawJson = response.extractFirstText();
-                if (rawJson != null && !rawJson.isBlank()) {
-                    String cleanJson = cleanJsonString(rawJson);
-                    TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
-                    result.setFallback(false);
-                    log.info("GEMINI_VISION sucesso [model={}]: Estilo=[{}], Tamanho=[{}], Horas=[{}], Complexidade=[{}]",
-                            model, result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getComplexityLevel());
-                    return result;
+                    long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
+
+                    if (response != null) {
+                        String rawJson = response.extractFirstText();
+                        if (rawJson != null && !rawJson.isBlank()) {
+                            String cleanJson = cleanJsonString(rawJson);
+                            TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
+                            postProcessResult(result);
+                            result.setFallback(false);
+                            log.info("GEMINI_STEP [action=SUCCESS, model={}, attempt={}/{}, latencyMs={}, style={}, size={}, hours={}, artists={}]",
+                                    candidateModel, attempt, maxAttemptsPerModel, elapsedMs,
+                                    result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getRecommendedArtists());
+                            return result;
+                        }
+                    }
+
+                    log.warn("GEMINI_STEP [action=EMPTY_RESPONSE, model={}, attempt={}/{}, latencyMs={}]",
+                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs);
+                    break; // Sem resposta útil deste modelo -> avança para próximo modelo da cadeia
+                } catch (HttpStatusCodeException httpEx) {
+                    long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
+                    int statusCode = httpEx.getStatusCode().value();
+                    boolean retryableStatus = (statusCode == 429 || statusCode == 503);
+
+                    if (retryableStatus && attempt < maxAttemptsPerModel) {
+                        long backoff = initialBackoffMs * (1L << (attempt - 1));
+                        log.warn("GEMINI_STEP [action=RETRY_BACKOFF, model={}, attempt={}/{}, status={}, backoffMs={}, latencyMs={}]: {}",
+                                candidateModel, attempt, maxAttemptsPerModel, statusCode, backoff, elapsedMs, httpEx.getMessage());
+                        sleepQuietly(backoff);
+                        continue;
+                    }
+
+                    log.warn("GEMINI_STEP [action=MODEL_FAILED, model={}, attempt={}/{}, status={}, latencyMs={}]: {}",
+                            candidateModel, attempt, maxAttemptsPerModel, statusCode, elapsedMs, httpEx.getMessage());
+                    break;
+                } catch (ResourceAccessException ioEx) {
+                    long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
+                    boolean isTimeout = isTimeoutException(ioEx);
+                    if (isTimeout) {
+                        sawTimeout = true;
+                    }
+                    log.warn("GEMINI_STEP [action={}, model={}, attempt={}/{}, latencyMs={}]: {}",
+                            isTimeout ? "TIMEOUT" : "NETWORK_ERROR",
+                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs, ioEx.getMessage());
+                    break;
+                } catch (Exception e) {
+                    long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
+                    log.warn("GEMINI_STEP [action=UNEXPECTED_ERROR, model={}, attempt={}/{}, latencyMs={}]: {}",
+                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs, e.getMessage());
+                    break;
                 }
             }
 
-            log.warn("GEMINI_FALLBACK ativado [motivo=EMPTY_RESPONSE, model={}]: resposta vazia da API Gemini.", model);
-            return createFallbackResult(customerNotes);
-        } catch (Exception e) {
-            log.warn("GEMINI_FALLBACK ativado [motivo=API_ERROR, model={}]: {}", model, e.getMessage(), e);
-            return createFallbackResult(customerNotes);
+            if (modelIdx + 1 < modelsToTry.size()) {
+                log.info("GEMINI_STEP [action=NEXT_MODEL_IN_CHAIN, failedModel={}, nextModel={}]",
+                        candidateModel, modelsToTry.get(modelIdx + 1));
+            }
+        }
+
+        String fallbackReason = sawTimeout ? "TIMEOUT_CHAIN_EXHAUSTED" : "CHAIN_EXHAUSTED";
+        log.warn("GEMINI_FALLBACK ativado [motivo={}, modelsTried={}]: encaminhando para transbordo sem preço.",
+                fallbackReason, modelsToTry);
+        return createFallbackResult(customerNotes);
+    }
+
+    private GeminiGenerateContentRequest buildRequestForModel(
+            GeminiGenerateContentRequest.Part textPart,
+            GeminiGenerateContentRequest.Part imagePart,
+            String targetModel) {
+
+        GeminiGenerateContentRequest.ThinkingConfig thinkingCfg = buildThinkingConfigForModel(targetModel);
+
+        return GeminiGenerateContentRequest.builder()
+                .contents(List.of(
+                        GeminiGenerateContentRequest.Content.builder()
+                                .parts(List.of(textPart, imagePart))
+                                .build()
+                ))
+                .generationConfig(GeminiGenerateContentRequest.GenerationConfig.builder()
+                        .responseMimeType("application/json")
+                        .temperature(0.2)
+                        .thinkingConfig(thinkingCfg)
+                        .build())
+                .build();
+    }
+
+    /**
+     * Constrói o parâmetro de controle de raciocínio compatível com a geração do modelo:
+     * - Gemini 3 / 3.5: {@code thinkingConfig.thinkingLevel} ("minimal", "low", "medium", "high")
+     * - Gemini 2.5: {@code thinkingConfig.thinkingBudget} (0 para low/minimal, 1024 para medium)
+     */
+    GeminiGenerateContentRequest.ThinkingConfig buildThinkingConfigForModel(String targetModel) {
+        if (thinkingLevel == null || thinkingLevel.isBlank() || "none".equalsIgnoreCase(thinkingLevel) || "default".equalsIgnoreCase(thinkingLevel)) {
+            return null;
+        }
+        String normModel = (targetModel != null) ? targetModel.toLowerCase(Locale.ROOT) : "";
+        String normLevel = thinkingLevel.toLowerCase(Locale.ROOT);
+
+        if (normModel.contains("gemini-3") || normModel.contains("gemini-4")) {
+            return GeminiGenerateContentRequest.ThinkingConfig.builder()
+                    .thinkingLevel(normLevel)
+                    .build();
+        }
+        if (normModel.contains("gemini-2.5")) {
+            int budget = switch (normLevel) {
+                case "minimal", "low", "0" -> 0;
+                case "medium" -> 512;
+                default -> 1024;
+            };
+            return GeminiGenerateContentRequest.ThinkingConfig.builder()
+                    .thinkingBudget(budget)
+                    .build();
+        }
+        return null;
+    }
+
+    private String resolveEffectiveThinkingDescription(String targetModel) {
+        GeminiGenerateContentRequest.ThinkingConfig cfg = buildThinkingConfigForModel(targetModel);
+        if (cfg == null) {
+            return "default";
+        }
+        if (cfg.getThinkingLevel() != null) {
+            return "thinkingLevel=" + cfg.getThinkingLevel();
+        }
+        return "thinkingBudget=" + cfg.getThinkingBudget();
+    }
+
+    private void postProcessResult(TattooAnalysisResult result) {
+        if (result == null) {
+            return;
+        }
+        // Limita sugestões de local a no máximo 2
+        if (result.getSuggestedBodyLocation() != null && !result.getSuggestedBodyLocation().isBlank()) {
+            List<String> limited = QuoteMessageBuilder.limitSuggestions(result.getSuggestedBodyLocation(), 2);
+            if (!limited.isEmpty()) {
+                result.setSuggestedBodyLocation(String.join(" ou ", limited));
+            }
+        }
+        // Garante que customerDescription não fique vazia se a IA só preencheu um resumo e evita vazar technicalNotes
+        if ((result.getCustomerDescription() == null || result.getCustomerDescription().isBlank())
+                && result.getStyle() != null && !result.getStyle().isBlank()) {
+            result.setCustomerDescription("Arte no estilo " + result.getStyle().trim()
+                    + ", com composição e encaixe pensados para valorizar o traço na pele.");
         }
     }
 
-    private String buildPrompt(String customerNotes) {
+    private boolean isTimeoutException(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            if (curr instanceof SocketTimeoutException) {
+                return true;
+            }
+            String msg = curr.getMessage();
+            if (msg != null && (msg.toLowerCase(Locale.ROOT).contains("timed out") || msg.toLowerCase(Locale.ROOT).contains("timeout"))) {
+                return true;
+            }
+            curr = curr.getCause();
+        }
+        return false;
+    }
+
+    private void sleepQuietly(long ms) {
+        if (ms <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public String buildPrompt(String customerNotes) {
         StringBuilder sb = new StringBuilder();
         sb.append("Você é o orçamentista especialista com IA do renomado estúdio 'Vício Tattoo CWB'.\n");
 
@@ -173,14 +390,16 @@ public class GeminiVisionClient {
 
         sb.append("Responda ESTRITAMENTE em formato JSON com as seguintes chaves:\n");
         sb.append("{\n");
-        sb.append("  \"style\": \"Estilo predominante identificado\",\n");
+        sb.append("  \"style\": \"Estilo predominante identificado (ex: Old School / Tradicional, Realismo Preto e Cinza, Fineline / Traço Fino, Blackwork / Geométrico, Aquarela & Floral, Oriental / Irezumi)\",\n");
         sb.append("  \"sizeCategory\": \"FLASH, PEQUENA, MEDIA, GRANDE ou FECHAMENTO\",\n");
         sb.append("  \"estimatedSizeCm\": \"Flash / Mini (até 5 cm), Pequena (6 a 10 cm), Média (11 a 18 cm), Grande (19 a 25 cm) ou Fechamento (26 cm+ / Projeto Amplo)\",\n");
         sb.append("  \"complexityLevel\": \"BAIXA, MEDIA ou ALTA\",\n");
-        sb.append("  \"complexityMultiplier\": multiplicador decimal (1.0 a 1.1 para traço simples; 1.2 a 1.4 para sombreado/blackwork; 1.5 a 1.8 para realismo detalhado),\n");
+        sb.append("  \"complexityMultiplier\": multiplicador decimal (1.0 a 1.1 para traço simples; 1.2 a 1.4 para sombreado/blackwork/old school; 1.5 a 1.8 para realismo detalhado),\n");
         sb.append("  \"estimatedHours\": número decimal com estimativa realista de horas (ex: 1.0, 1.5, 2.5, 4.0, 6.0),\n");
-        sb.append("  \"suggestedBodyLocation\": \"locais anatômicos ideais (ex: Antebraço, Pulso, Costela, Panturrilha)\",\n");
-        sb.append("  \"technicalNotes\": \"2 a 3 frases explicativas sobre agulhas recomendadas, sombreamento e cuidados\",\n");
+        sb.append("  \"detectedBodyLocation\": \"Parte do corpo visível na foto caso seja uma tatuagem na pele (ex: Antebraço, Panturrilha), ou null se for flash/desenho isolado no papel/fundo\",\n");
+        sb.append("  \"suggestedBodyLocation\": \"NO MÁXIMO 2 sugestões de locais anatômicos ideais separados por 'ou' (ex: 'Antebraço ou Panturrilha') — nunca liste mais de 2\",\n");
+        sb.append("  \"customerDescription\": \"1 a 2 frases curtas em linguagem simples e acolhedora para o cliente descrevendo o visual da arte (PROIBIDO mencionar códigos de agulhas como 03RL/Magnum ou jargões técnicos aqui)\",\n");
+        sb.append("  \"technicalNotes\": \"2 a 3 frases técnicas exclusivas para o tatuador no painel interno (agulhas recomendadas ex: RL/RS/Magnum, técnica de pigmentação, sombreamento e cuidados)\",\n");
         sb.append("  \"recommendedArtists\": [\"Nome do tatuador especialista do estúdio mais adequado para esse estilo\"],\n");
         sb.append("  \"primaryColors\": [\"Preto\", \"Cinza\"]\n");
         sb.append("}\n");
@@ -226,7 +445,8 @@ public class GeminiVisionClient {
                     .complexityLevel("BAIXA")
                     .complexityMultiplier(1.0)
                     .estimatedHours(0.5)
-                    .suggestedBodyLocation("Orelha (Hélice/Tragus/Lóbulo) ou Nariz")
+                    .suggestedBodyLocation("Orelha ou Nariz")
+                    .customerDescription("Aplicação delicada com joia biocompatível e acabamento seguro.")
                     .technicalNotes("Procedimento asséptico com cateter descartável e joia de titânio grau implante.")
                     .recommendedArtists(List.of("Larissa Piercing", "Julia Piercer"))
                     .primaryColors(new ArrayList<>(List.of("Prata / Titânio")))
@@ -241,7 +461,8 @@ public class GeminiVisionClient {
                     .complexityLevel("ALTA")
                     .complexityMultiplier(1.4)
                     .estimatedHours(hours)
-                    .suggestedBodyLocation("Antebraço, Bíceps ou Panturrilha")
+                    .suggestedBodyLocation("Antebraço ou Panturrilha")
+                    .customerDescription("Arte realista em preto e cinza com riqueza de detalhes e profundidade visual.")
                     .technicalNotes("Obra com contraste dramático, degradê suave e texturas com agulhas Magnum. Realismo de alto impacto.")
                     .recommendedArtists(List.of("Carlos Silveira"))
                     .primaryColors(new ArrayList<>(List.of("Preto", "Cinza")))
@@ -255,8 +476,9 @@ public class GeminiVisionClient {
                     .complexityLevel("MEDIA")
                     .complexityMultiplier(1.25)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Antebraço, Ombro ou Panturrilha")
-                    .technicalNotes("Preenchimento sólido em preto intenso e linhas geométricas precisas.")
+                    .suggestedBodyLocation("Antebraço ou Panturrilha")
+                    .customerDescription("Composição marcante em preto sólido com contraste forte e linhas bem definidas.")
+                    .technicalNotes("Preenchimento sólido em preto intenso e linhas geométricas precisas com RL e Magnum.")
                     .recommendedArtists(List.of("Lucas 'Blade'"))
                     .primaryColors(new ArrayList<>(List.of("Preto")))
                     .build();
@@ -269,7 +491,8 @@ public class GeminiVisionClient {
                     .complexityLevel("MEDIA")
                     .complexityMultiplier(1.25)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Antebraço, Ombro ou Costela")
+                    .suggestedBodyLocation("Antebraço ou Ombro")
+                    .customerDescription("Arte leve e vibrante com efeito fluido de cores que valoriza o movimento natural.")
                     .technicalNotes("Transições fluidas de cor e pigmentação vibrante com agulhas Round Shader e Magnum.")
                     .recommendedArtists(List.of("Beatriz Lima"))
                     .primaryColors(new ArrayList<>(List.of("Colorido")))
@@ -283,8 +506,9 @@ public class GeminiVisionClient {
                     .complexityLevel("MEDIA")
                     .complexityMultiplier(1.2)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Braço, Antebraço ou Panturrilha")
-                    .technicalNotes("Traços firmes (Bold Line) e paleta clássica de alta durabilidade.")
+                    .suggestedBodyLocation("Antebraço ou Panturrilha")
+                    .customerDescription("Visual clássico tradicional com contornos marcantes e cores vibrantes de longa duração.")
+                    .technicalNotes("Traços firmes (Bold Line com 09RL/11RL) e paleta clássica saturada com Magnum.")
                     .recommendedArtists(List.of("Rodrigo 'Old' Santos"))
                     .primaryColors(new ArrayList<>(List.of("Preto", "Vermelho", "Amarelo")))
                     .build();
@@ -297,8 +521,9 @@ public class GeminiVisionClient {
                     .complexityLevel("ALTA")
                     .complexityMultiplier(1.35)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Braço, Costas ou Coxa")
-                    .technicalNotes("Composição fluida respeitando a anatomia muscular com contraste marcante.")
+                    .suggestedBodyLocation("Braço ou Costas")
+                    .customerDescription("Arte expressiva com composição fluida que acompanha o formato do corpo.")
+                    .technicalNotes("Composição fluida respeitando a anatomia muscular com contraste marcante e sombreado oriental.")
                     .recommendedArtists(List.of("Gabriel Moura"))
                     .primaryColors(new ArrayList<>(List.of("Preto", "Colorido")))
                     .build();
@@ -311,8 +536,9 @@ public class GeminiVisionClient {
                     .complexityLevel("MEDIA")
                     .complexityMultiplier(1.2)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Antebraço, Esterno ou Ombro")
-                    .technicalNotes("Simetria geométrica e sombreamento em pontilhismo fino.")
+                    .suggestedBodyLocation("Antebraço ou Ombro")
+                    .customerDescription("Desenho simétrico com efeito delicado de sombras feitas ponto a ponto.")
+                    .technicalNotes("Simetria geométrica e sombreamento em pontilhismo fino com 03RL/05RL.")
                     .recommendedArtists(List.of("Felipe Alcantara"))
                     .primaryColors(new ArrayList<>(List.of("Preto")))
                     .build();
@@ -325,8 +551,9 @@ public class GeminiVisionClient {
                     .complexityLevel("MEDIA")
                     .complexityMultiplier(1.2)
                     .estimatedHours(resolvedSize.getDefaultHours())
-                    .suggestedBodyLocation("Antebraço, Peito ou Panturrilha")
-                    .technicalNotes("Traços expressivos e alto contraste em preto e cinza.")
+                    .suggestedBodyLocation("Antebraço ou Panturrilha")
+                    .customerDescription("Arte de personalidade forte com sombras intensas e visual expressivo.")
+                    .technicalNotes("Traços expressivos e alto contraste em preto e cinza com whip shading.")
                     .recommendedArtists(List.of("Thiago 'Dark' Souza"))
                     .primaryColors(new ArrayList<>(List.of("Preto")))
                     .build();
@@ -341,7 +568,8 @@ public class GeminiVisionClient {
                     .complexityLevel("BAIXA")
                     .complexityMultiplier(1.05)
                     .estimatedHours(hours)
-                    .suggestedBodyLocation("Antebraço, Pulso ou Tornozelo")
+                    .suggestedBodyLocation("Antebraço ou Pulso")
+                    .customerDescription("Arte minimalista de traço fino e delicado, ideal para um visual leve e elegante.")
                     .technicalNotes("Traço fino e delicado com agulha 03RL. Excelente cicatrização e definição para artes minimalistas.")
                     .recommendedArtists(List.of("Mariana Rocha"))
                     .primaryColors(new ArrayList<>(List.of("Preto")))
@@ -354,7 +582,8 @@ public class GeminiVisionClient {
                     .complexityLevel("ALTA")
                     .complexityMultiplier(1.5)
                     .estimatedHours(TattooSizeOption.FECHAMENTO.getDefaultHours())
-                    .suggestedBodyLocation("Braço, Perna ou Costas (A combinar)")
+                    .suggestedBodyLocation("Braço ou Costas")
+                    .customerDescription("Projeto amplo pensado sob medida para cobrir a região escolhida com harmonia.")
                     .technicalNotes("Projeto amplo de fechamento. Avaliação anatômica, encaixe e sessões definidos diretamente com o tatuador especialista.")
                     .recommendedArtists(List.of("Carlos Silveira"))
                     .primaryColors(new ArrayList<>(List.of("Preto", "Cinza")))
@@ -370,6 +599,7 @@ public class GeminiVisionClient {
                 .complexityMultiplier(1.2)
                 .estimatedHours(resolvedSize.getDefaultHours())
                 .suggestedBodyLocation("Antebraço ou Panturrilha")
+                .customerDescription("Arte personalizada com composição equilibrada e acabamento pensado para a sua pele.")
                 .technicalNotes("Tatuagem com traços e sombreamento padrão do estúdio. Detalhes finais ajustados com o tatuador na sessão.")
                 .recommendedArtists(List.of("Lucas 'Blade'", "Mariana Rocha"))
                 .primaryColors(new ArrayList<>(List.of("Preto", "Cinza")))
