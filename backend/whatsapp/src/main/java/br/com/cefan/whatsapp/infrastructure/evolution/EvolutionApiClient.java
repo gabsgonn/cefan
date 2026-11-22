@@ -79,6 +79,38 @@ public class EvolutionApiClient {
     }
 
     /**
+     * Envia estado de presença ("composing" = digitando, "recording", "paused")
+     * para o cliente via Evolution API (/chat/sendPresence/{instance}).
+     */
+    public void sendPresence(String instance, String recipientNumber, String presence, int delayMs) {
+        String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
+        String safePresence = (presence != null && !presence.isBlank()) ? presence.trim() : "composing";
+        int safeDelay = Math.max(0, delayMs);
+        log.info("Enviando presença [{}] ({} ms) via Evolution API para [{}] na instância [{}]",
+                safePresence, safeDelay, recipientNumber, targetInstance);
+        try {
+            Map<String, Object> body = Map.of(
+                    "number", recipientNumber,
+                    "presence", safePresence,
+                    "delay", safeDelay
+            );
+            restClient.post()
+                    .uri("/chat/sendPresence/{instance}", targetInstance)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception e) {
+            log.warn("Falha ao enviar presença [{}] via Evolution API para [{}]: {}",
+                    safePresence, recipientNumber, e.getMessage());
+        }
+    }
+
+    public void sendTypingPresence(String instance, String recipientNumber, int delayMs) {
+        sendPresence(instance, recipientNumber, "composing", delayMs);
+    }
+
+    /**
      * Envia uma enquete nativa do WhatsApp via Evolution API (/message/sendPoll/{instance})
      * e retorna o key.id da enquete criada para rastreamento de votos.
      */

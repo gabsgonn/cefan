@@ -113,6 +113,10 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         handle(customer, session, webhook, messageText, intent);
     }
 
+    public static final String PHOTO_RECEIVED_ACK_MESSAGE =
+            "📸 Recebi sua foto! Estou analisando os detalhes da arte com nossa IA, só um instante... ✨";
+    private static final int TYPING_PRESENCE_DELAY_MS = 15000;
+
     @Override
     public void handle(Customer customer, ConversationSession session, EvolutionWebhookRequest webhook, String messageText, UserIntent intent) {
         boolean hasImage = webhook.hasImage();
@@ -122,6 +126,11 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
         if (hasImage) {
             log.info("Processando imagem de referência para o cliente [{}]", customer.getPhone());
+
+            // Feedback imediato + presença "digitando" (mitiga a percepção de latência de ~14s do Gemini)
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), PHOTO_RECEIVED_ACK_MESSAGE);
+            chatService.recordBotMessage(session, customer, PHOTO_RECEIVED_ACK_MESSAGE);
+            evolutionApiClient.sendTypingPresence(webhook.getInstance(), customer.getPhone(), TYPING_PRESENCE_DELAY_MS);
 
             // 1. Obtenção do Base64 da imagem
             String base64Image = webhook.extractBase64();
@@ -241,7 +250,9 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                 TattooAnalysisResult analysis = reconstructAnalysisFromContext(session.getContextData(), messageText);
                 analysis.setSizeCategory(sizeOption.getCategoryKey());
                 analysis.setEstimatedSizeCm(sizeOption.getFormattedLabel());
-                analysis.setEstimatedHours(sizeOption.getDefaultHours());
+                if (!analysis.isFallback()) {
+                    analysis.setEstimatedHours(sizeOption.getDefaultHours());
+                }
                 String existingRefImage = extractStringFromContext(session.getContextData(), "referenceImageUrl");
                 sendStandardQuoteReply(customer, session, webhook, analysis, sizeOption, existingRefImage, tenantConfig);
                 return;
@@ -372,6 +383,27 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             String referenceImageUrl,
             TenantConfig tenantConfig) {
 
+        if (analysis != null && analysis.isFallback()) {
+            saveContextData(session, analysis, null, null, null, referenceImageUrl, false, "A combinar");
+            String fallbackReply = QuoteMessageBuilder.build(
+                    customer.getName(), analysis, tenantConfig, resolvedSize, null, null);
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), fallbackReply);
+            chatService.recordBotMessage(session, customer, fallbackReply);
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "HUMAN_REQUEST",
+                        "Orçamento sem preço (Contingência IA)",
+                        customer.getName() + " enviou foto de referência, mas a IA entrou em contingência (sem preço/tempo automático).",
+                        customer.getPhone()
+                );
+            }
+            sendPostQuotePollIfEnabled(customer, session, webhook);
+            return;
+        }
+
+        // Quando a IA falhou ou o modelo retornou nulo, evitamos expor/persistir preço ou permitir recálculo por cm
+        boolean showPrice = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowPrice());
+
         BigDecimal hourlyRate = tenantConfig.getDefaultHourlyRate() != null
                 ? tenantConfig.getDefaultHourlyRate()
                 : new BigDecimal("150.00");
@@ -394,47 +426,32 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         BigDecimal minPrice = basePrice.multiply(BigDecimal.valueOf(0.90)).setScale(0, RoundingMode.HALF_UP);
         BigDecimal maxPrice = basePrice.multiply(BigDecimal.valueOf(1.15)).setScale(0, RoundingMode.HALF_UP);
 
+        if (analysis.getEstimatedHours() == null) {
+            analysis.setEstimatedHours(hours.doubleValue());
+        }
+
+        // Se orcamentoShowPrice = false, ainda calculamos basePrice normalmente para uso no painel e no sinal PIX;
+        // a ocultação do saldo restante no pré-agendamento/PIX é feita pelo AgendamentoStateHandler
         saveContextData(session, analysis, basePrice, minPrice, maxPrice, referenceImageUrl, false, "R$ " + minPrice + " a R$ " + maxPrice);
 
-        String hoursFormatted = String.format(Locale.forLanguageTag("pt-BR"), "%.1f", hours.doubleValue());
-
-        String recommended = (analysis.getRecommendedArtists() != null && !analysis.getRecommendedArtists().isEmpty())
-                ? String.join(", ", analysis.getRecommendedArtists())
-                : "Carlos Silveira ou Mariana Rocha";
-
-        String sizeInfo = formatSizeInfo(analysis, resolvedSize);
-
-        String reply = String.format(
-                "🎨 *Orçamento Estimado com Inteligência Artificial* 🎨\n\n" +
-                "Olá, %s! Analisamos os detalhes da sua arte de referência:\n\n" +
-                "📌 *Estilo:* %s\n" +
-                "📏 *Tamanho Estimado:* %s\n" +
-                "⏱️ *Tempo Estimado:* ~%sh de agulha\n" +
-                "🔍 *Complexidade:* %s\n" +
-                "📍 *Local Sugerido:* %s\n" +
-                "👨‍🎨 *Tatuador Especialista:* %s\n\n" +
-                "📝 *Detalhes da Arte:*\n%s\n\n" +
-                "💰 *Faixa de Preço Estimada:*\n*R$ %s a R$ %s*\n" +
-                "_(Inclui materiais 100%% descartáveis, esterilizados e biossegurança)_\n\n" +
-                "💡 _Quer ajustar a estimativa? Informe a medida em cm (ex: 10cm) ou \"fechamento\"._\n\n" +
-                "━━━━━━━━━━━━━━━━━━━━\n" +
-                "%s\n\n" +
-                "👉 _Digite o número da opção desejada._",
+        String reply = QuoteMessageBuilder.build(
                 customer.getName(),
-                analysis.getStyle() != null ? analysis.getStyle() : "Arte Personalizada",
-                sizeInfo,
-                hoursFormatted,
-                analysis.getComplexityLevel() != null ? analysis.getComplexityLevel() : "MEDIA",
-                analysis.getSuggestedBodyLocation() != null ? analysis.getSuggestedBodyLocation() : "A combinar com o tatuador",
-                recommended,
-                analysis.getTechnicalNotes() != null ? analysis.getTechnicalNotes() : "Arte avaliada conforme parâmetros do estúdio.",
+                analysis,
+                tenantConfig,
+                resolvedSize,
                 minPrice,
-                maxPrice,
-                buildPostQuoteActionsBlock()
+                maxPrice
         );
 
         evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
         chatService.recordBotMessage(session, customer, reply);
+        sendPostQuotePollIfEnabled(customer, session, webhook);
+    }
+
+    private void sendPostQuotePollIfEnabled(
+            Customer customer,
+            ConversationSession session,
+            EvolutionWebhookRequest webhook) {
         if (pollService != null) {
             pollService.sendAndTrackPoll(
                     webhook.getInstance(),
@@ -487,32 +504,68 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         saveContextData(session, analysis, null, null, null, referenceImageUrl, true, "A combinar");
 
         String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
+        String customerDesc = (analysis.getCustomerDescription() != null && !analysis.getCustomerDescription().isBlank())
+                ? analysis.getCustomerDescription().trim()
+                : "Projeto amplo de fechamento com avaliação anatômica, encaixe e planejamento de sessões diretamente com o especialista.";
+        String locationInfo = QuoteMessageBuilder.formatLocationLine(
+                analysis.getDetectedBodyLocation(),
+                analysis.getSuggestedBodyLocation() != null ? analysis.getSuggestedBodyLocation() : "Braço ou Costas"
+        );
 
-        String reply = String.format(
-                "🎨 *Orçamento de Projeto - Fechamento* 🎨\n\n" +
-                "Olá, %s! Identificamos que você escolheu a opção *Fechamento*:\n\n" +
-                "📌 *Estilo:* %s\n" +
-                "📏 *Tamanho Escolhido:* %s\n" +
-                "🔍 *Complexidade:* %s\n" +
-                "📍 *Local Sugerido:* %s\n" +
-                "👨‍🎨 *Tatuador Especialista:* %s\n\n" +
-                "📝 *Detalhes da Arte:*\n%s\n\n" +
-                "💰 *Valor Estimado:*\n*A combinar*\n" +
-                "_(Projetos de fechamento possuem orçamento personalizado conforme anatomia e número de sessões)_\n\n" +
+        boolean showGreeting = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowGreeting());
+        boolean showStyle = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowStyle());
+        boolean showSize = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowSize());
+        boolean showComplexity = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowComplexity());
+        boolean showLocation = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowLocation());
+        boolean showArtists = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowArtists());
+        boolean showDescription = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowDescription());
+        boolean showPrice = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowPrice());
+
+        List<String> blocks = new ArrayList<>();
+        blocks.add("🎨 *Orçamento de Projeto - Fechamento* 🎨");
+
+        if (showGreeting) {
+            blocks.add(String.format("Olá, %s! Identificamos que você escolheu a opção *Fechamento*:", customer.getName()));
+        }
+
+        List<String> metricLines = new ArrayList<>();
+        if (showStyle) {
+            metricLines.add("📌 *Estilo:* " + (analysis.getStyle() != null ? analysis.getStyle() : "Projeto de Fechamento Autoral"));
+        }
+        if (showSize) {
+            metricLines.add("📏 *Tamanho Escolhido:* " + TattooSizeOption.FECHAMENTO.getFormattedLabel());
+        }
+        if (showComplexity && analysis.getComplexityLevel() != null && !analysis.getComplexityLevel().isBlank()) {
+            metricLines.add("🔍 *Complexidade:* " + analysis.getComplexityLevel());
+        }
+        if (showLocation) {
+            metricLines.add(locationInfo != null ? locationInfo : "📍 *Local Sugerido:* Braço ou Costas");
+        }
+        if (showArtists) {
+            metricLines.add("👨‍🎨 *Tatuador Especialista:* " + artistName);
+        }
+        if (!metricLines.isEmpty()) {
+            blocks.add(String.join("\n", metricLines));
+        }
+
+        if (showDescription) {
+            blocks.add("📝 *Sobre a sua arte:*\n" + customerDesc);
+        }
+
+        if (showPrice) {
+            blocks.add("💰 *Valor Estimado:*\n*A combinar*\n_(Projetos de fechamento possuem orçamento personalizado conforme anatomia e número de sessões)_");
+        }
+
+        blocks.add(String.format(
                 "━━━━━━━━━━━━━━━━━━━━\n" +
                 "🤝 *Encaminhado ao Tatuador Especialista:*\n" +
                 "Sua conversa já foi vinculada e encaminhada diretamente para *%s*, que irá te responder por aqui em instantes para alinhar os detalhes do seu projeto!%s\n\n" +
                 "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                customer.getName(),
-                analysis.getStyle() != null ? analysis.getStyle() : "Projeto de Fechamento Autoral",
-                TattooSizeOption.FECHAMENTO.getFormattedLabel(),
-                analysis.getComplexityLevel(),
-                analysis.getSuggestedBodyLocation() != null ? analysis.getSuggestedBodyLocation() : "Braço, Perna ou Costas (A combinar)",
-                artistName,
-                analysis.getTechnicalNotes() != null ? analysis.getTechnicalNotes() : "Avaliação anatômica, encaixe e planejamento de sessões diretamente com o especialista.",
                 artistName,
                 absenceNotice
-        );
+        ));
+
+        String reply = String.join("\n\n", blocks);
 
         evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
         chatService.recordBotMessage(session, customer, reply);
@@ -764,9 +817,12 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                             .estimatedHours(node.hasNonNull("estimatedHours") ? node.get("estimatedHours").asDouble() : 2.5)
                             .sizeCategory(node.path("sizeCategory").asText(null))
                             .estimatedSizeCm(node.path("estimatedSizeCm").asText(null))
-                            .suggestedBodyLocation(node.path("suggestedBodyLocation").asText("A combinar com o tatuador"))
+                            .detectedBodyLocation(node.path("detectedBodyLocation").asText(null))
+                            .suggestedBodyLocation(node.path("suggestedBodyLocation").asText("Antebraço ou Panturrilha"))
+                            .customerDescription(node.path("customerDescription").asText(null))
                             .technicalNotes(node.path("technicalNotes").asText("Avaliação técnica realizada pela IA do estúdio."))
                             .recommendedArtists(recArtists)
+                            .fallback(node.path("fallback").asBoolean(false))
                             .build();
 
                     applyExplicitStyleOverrideIfPresent(reconstructed, customerNotes);
@@ -880,8 +936,11 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             context.put("sizeCategory", analysis.getSizeCategory());
             context.put("estimatedSizeCm", analysis.getEstimatedSizeCm());
             context.put("recommendedArtists", analysis.getRecommendedArtists());
+            context.put("detectedBodyLocation", analysis.getDetectedBodyLocation());
             context.put("suggestedBodyLocation", analysis.getSuggestedBodyLocation());
+            context.put("customerDescription", analysis.getCustomerDescription());
             context.put("technicalNotes", analysis.getTechnicalNotes());
+            context.put("fallback", analysis.isFallback());
             context.put("isFechamento", isFechamento);
             context.put("priceDisplay", priceDisplay);
             if (basePrice != null) {

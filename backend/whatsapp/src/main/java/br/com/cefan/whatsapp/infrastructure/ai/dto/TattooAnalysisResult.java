@@ -18,7 +18,9 @@ public class TattooAnalysisResult {
     private String complexityLevel;
     private Double complexityMultiplier;
     private Double estimatedHours;
+    private String detectedBodyLocation;
     private String suggestedBodyLocation;
+    private String customerDescription;
     private String technicalNotes;
     private List<String> primaryColors;
     private String sizeCategory;

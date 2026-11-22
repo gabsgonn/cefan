@@ -1511,12 +1511,17 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 ? String.format("🗓️ *Pré-Agendamento Criado!*\n\nOlá, %s! Confira os detalhes da sua reserva:", customer.getName())
                 : String.format("%s\n\nOlá, %s! Confira os detalhes da sua reserva:", customHeader, customer.getName());
 
+        boolean showPrice = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowPrice());
+        String balanceLine = showPrice
+                ? String.format("💵 *Saldo Restante:* R$ %s (pago no estúdio no dia da sessão)\n", remainingAmount)
+                : "";
+
         return String.format(
                 "%s\n" +
                 "📅 *Data e Horário:* %s das %s às %s (%dh)\n" +
                 "👨‍🎨 *Profissional:* %s\n" +
                 "💰 *Sinal de Reserva:* R$ %s\n" +
-                "💵 *Saldo Restante:* R$ %s (pago no estúdio no dia da sessão)\n" +
+                "%s" +
                 "⏳ *Validade do PIX:* %s\n\n" +
                 "Abaixo enviarei o *código PIX Copia e Cola* em uma mensagem separada para facilitar na hora de copiar. Assim que o pagamento for identificado, confirmaremos sua vaga automaticamente! ✨\n\n" +
                 "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
@@ -1527,7 +1532,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 durationHours,
                 artistName,
                 depositAmount,
-                remainingAmount,
+                balanceLine,
                 expirationLabel
         );
     }

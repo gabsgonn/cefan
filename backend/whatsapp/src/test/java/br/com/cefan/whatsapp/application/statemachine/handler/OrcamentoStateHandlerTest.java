@@ -99,9 +99,13 @@ class OrcamentoStateHandlerTest {
         handler.handle(customer, session, webhook, "Gostaria de saber o valor para essa arte no braço");
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        verify(evolutionApiClient, times(2)).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        verify(evolutionApiClient).sendTypingPresence(eq("cefan-studio"), eq("5511988888888"), anyInt());
 
-        String message = messageCaptor.getValue();
+        List<String> sentMessages = messageCaptor.getAllValues();
+        assertTrue(sentMessages.get(0).contains("Recebi sua foto"));
+
+        String message = sentMessages.get(1);
         assertTrue(message.contains("Realismo Preto e Cinza"));
         assertTrue(message.contains("3,0h de agulha") || message.contains("3.0h de agulha"));
         assertTrue(message.contains("ALTA"));
@@ -472,5 +476,169 @@ class OrcamentoStateHandlerTest {
         assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
         verify(adminController).publishNotification(eq("HUMAN_REQUEST"), contains("11h"), anyString(), eq("5511988888888"));
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), contains("ultrapassa nosso expediente"));
+    }
+
+    @Test
+    void shouldAnalyzeOldSchoolPantherPhotoAndRecommendTraditionalSpecialist() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        TattooAnalysisResult pantherAnalysis = TattooAnalysisResult.builder()
+                .style("Old School / Tradicional")
+                .sizeCategory("MEDIA")
+                .estimatedSizeCm("Média (11 a 18 cm)")
+                .complexityLevel("MEDIA")
+                .complexityMultiplier(1.2)
+                .estimatedHours(2.5)
+                .detectedBodyLocation("Antebraço")
+                .suggestedBodyLocation("Panturrilha ou Braço")
+                .customerDescription("Pantera negra clássica no estilo Old School com traços marcantes e cores vibrantes.")
+                .technicalNotes("Contorno Bold Line com 09RL/11RL e preenchimento sólido preto/vermelho/amarelo com Magnum.")
+                .recommendedArtists(List.of("Rodrigo Old School"))
+                .fallback(false)
+                .build();
+        when(geminiVisionClient.analyzeTattoo(any(), any(), any())).thenReturn(pantherAnalysis);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        EvolutionWebhookRequest.ImageMessage img = new EvolutionWebhookRequest.ImageMessage();
+        img.setMimetype("image/jpeg");
+        img.setBase64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+        content.setImageMessage(img);
+        data.setMessage(content);
+        webhook.setData(data);
+
+        handler.handle(customer, session, webhook, "Quero tatuar essa pantera old school no antebraço");
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient, times(2)).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        verify(evolutionApiClient).sendTypingPresence(eq("cefan-studio"), eq("5511988888888"), anyInt());
+
+        String ackMsg = messageCaptor.getAllValues().get(0);
+        assertTrue(ackMsg.contains("Recebi sua foto"));
+
+        String quoteMsg = messageCaptor.getAllValues().get(1);
+        assertTrue(quoteMsg.toLowerCase().contains("old school") || quoteMsg.toLowerCase().contains("tradicional"));
+        assertTrue(quoteMsg.contains("Rodrigo Old School"));
+        assertTrue(quoteMsg.contains("Pantera negra clássica"));
+        assertFalse(quoteMsg.contains("09RL"), "technicalNotes não deve vazar para o cliente");
+        assertTrue(quoteMsg.contains(QuoteMessageBuilder.ESTIMATE_DISCLAIMER));
+    }
+
+    @Test
+    void shouldOmitPriceTimeAndArtistsWhenAnalysisIsFallbackTrue() {
+        br.com.cefan.whatsapp.api.controller.StudioAdminController adminController =
+                mock(br.com.cefan.whatsapp.api.controller.StudioAdminController.class);
+        OrcamentoStateHandler handlerWithAdmin = new OrcamentoStateHandler(
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, adminController);
+
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        TattooAnalysisResult fallbackResult = TattooAnalysisResult.builder()
+                .style("Old School / Tradicional")
+                .sizeCategory("MEDIA")
+                .estimatedSizeCm("Média (11 a 18 cm)")
+                .estimatedHours(2.5)
+                .recommendedArtists(List.of("Rodrigo Old School"))
+                .fallback(true)
+                .build();
+        when(geminiVisionClient.analyzeTattoo(any(), any(), any())).thenReturn(fallbackResult);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
+        EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
+        content.setImageMessage(new EvolutionWebhookRequest.ImageMessage());
+        data.setMessage(content);
+        webhook.setData(data);
+
+        handlerWithAdmin.handle(customer, session, webhook, "Foto de pantera");
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient, times(2)).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+
+        String fallbackMsg = messageCaptor.getAllValues().get(1);
+        assertFalse(fallbackMsg.contains("Faixa de Preço"));
+        assertFalse(fallbackMsg.contains("de agulha"));
+        assertFalse(fallbackMsg.contains("Rodrigo Old School"));
+        assertTrue(fallbackMsg.contains("1️⃣ *Agendar sessão*"));
+        verify(adminController).publishNotification(
+                eq("HUMAN_REQUEST"),
+                contains("Contingência"),
+                contains("Mariana"),
+                eq("5511988888888")
+        );
+    }
+
+    @Test
+    void shouldRespectTenantTogglesAndNeverLeakPriceOrTechnicalNotesOnPostQuoteCmAdjustment() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .orcamentoShowPrice(false)
+                .orcamentoShowComplexity(false)
+                .orcamentoShowArtists(false)
+                .orcamentoShowDescription(true)
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        session.setContextData("{\"style\":\"Old School / Tradicional\",\"sizeCategory\":\"MEDIA\",\"estimatedSizeCm\":\"Média (11 a 18 cm)\",\"estimatedHours\":2.5,\"complexityLevel\":\"MEDIA\",\"complexityMultiplier\":1.2,\"detectedBodyLocation\":\"Antebraço\",\"suggestedBodyLocation\":\"Panturrilha ou Braço\",\"customerDescription\":\"Pantera negra clássica tradicional com traços firmes.\",\"technicalNotes\":\"Agulha 11RL e Magnum 13MG\",\"recommendedArtists\":[\"Rodrigo Old School\"],\"fallback\":false}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        handler.handle(customer, session, webhook, "10cm");
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+
+        String adjustedMsg = messageCaptor.getValue();
+        assertTrue(adjustedMsg.contains("Pequena (6 a 10 cm)"));
+        assertTrue(adjustedMsg.contains("Pantera negra clássica tradicional"));
+        assertFalse(adjustedMsg.contains("Faixa de Preço"), "orcamentoShowPrice=false deve continuar ocultando o preço no recálculo em cm");
+        assertFalse(adjustedMsg.contains("Complexidade"), "orcamentoShowComplexity=false deve continuar ocultando a complexidade");
+        assertFalse(adjustedMsg.contains("Rodrigo Old School"), "orcamentoShowArtists=false deve continuar ocultando o artista");
+        assertFalse(adjustedMsg.contains("11RL"), "technicalNotes jamais deve vazar para o cliente após ajuste em cm");
+    }
+
+    @Test
+    void shouldRespectTenantTogglesWhenFechamentoQuoteIsGenerated() {
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .orcamentoShowGreeting(false)
+                .orcamentoShowComplexity(false)
+                .orcamentoShowDescription(false)
+                .orcamentoShowPrice(false)
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        session.setContextData("{\"style\":\"Old School / Tradicional\",\"complexityLevel\":\"ALTA\",\"customerDescription\":\"Fechamento de braço tradicional.\",\"recommendedArtists\":[\"Rodrigo Old School\"]}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        handler.handle(customer, session, webhook, "Fechamento");
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+
+        String reply = messageCaptor.getValue();
+        assertTrue(reply.contains("Fechamento (26 cm+ / Projeto Amplo)"));
+        assertFalse(reply.contains("Olá, Mariana!"), "orcamentoShowGreeting=false deve omitir a saudação no Fechamento");
+        assertFalse(reply.contains("Complexidade:"), "orcamentoShowComplexity=false deve omitir a complexidade no Fechamento");
+        assertFalse(reply.contains("Sobre a sua arte:"), "orcamentoShowDescription=false deve omitir a descrição no Fechamento");
+        assertFalse(reply.contains("Valor Estimado:"), "orcamentoShowPrice=false deve omitir o bloco de valor no Fechamento");
     }
 }
