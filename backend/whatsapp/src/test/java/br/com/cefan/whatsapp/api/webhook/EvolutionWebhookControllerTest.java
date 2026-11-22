@@ -234,4 +234,20 @@ class EvolutionWebhookControllerTest {
 
         verify(messageHandlingService).handleIncomingMessage(any());
     }
+
+    @Test
+    void shouldMaskPhonesAndTruncateRawWebhookPayloadForDebugLog() {
+        String raw = "{\"remoteJid\":\"5541999887766@s.whatsapp.net\",\"participant\":\"11223344556677@lid\",\"number\":\"5541999887766\"}";
+        String sanitized = EvolutionWebhookController.sanitizeAndTruncateRawPayload(raw);
+
+        org.junit.jupiter.api.Assertions.assertTrue(sanitized.contains("5541*******@s.whatsapp.net"));
+        org.junit.jupiter.api.Assertions.assertTrue(sanitized.contains("1122*******@lid"));
+        org.junit.jupiter.api.Assertions.assertTrue(sanitized.contains("\"number\":\"5541*******\""));
+        org.junit.jupiter.api.Assertions.assertFalse(sanitized.contains("999887766"));
+
+        String huge = "a".repeat(2500);
+        String truncated = EvolutionWebhookController.sanitizeAndTruncateRawPayload(huge);
+        org.junit.jupiter.api.Assertions.assertTrue(truncated.endsWith("... [truncado]"));
+        org.junit.jupiter.api.Assertions.assertTrue(truncated.length() < 2050);
+    }
 }
