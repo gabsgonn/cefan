@@ -2,7 +2,11 @@ package br.com.cefan.whatsapp.domain.repository;
 
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
@@ -22,6 +26,10 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     List<Appointment> findByScheduledStartBetween(OffsetDateTime start, OffsetDateTime end);
 
     Optional<Appointment> findByMpPaymentId(String mpPaymentId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM Appointment a WHERE a.mpPaymentId = :mpPaymentId")
+    Optional<Appointment> findByMpPaymentIdForUpdate(@Param("mpPaymentId") String mpPaymentId);
 
     List<Appointment> findByStatusAndScheduledStartBetweenAndReminder24hSentFalse(
             AppointmentStatus status, OffsetDateTime start, OffsetDateTime end);

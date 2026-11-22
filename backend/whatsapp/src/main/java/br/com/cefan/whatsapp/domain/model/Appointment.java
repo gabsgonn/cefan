@@ -72,6 +72,10 @@ public class Appointment {
     @Builder.Default
     private Boolean reminder24hSent = false;
 
+    @Column(name = "late_payment_notified", nullable = false)
+    @Builder.Default
+    private Boolean latePaymentNotified = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

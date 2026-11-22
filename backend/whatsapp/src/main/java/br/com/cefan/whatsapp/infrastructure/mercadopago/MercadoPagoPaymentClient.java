@@ -1,8 +1,10 @@
 package br.com.cefan.whatsapp.infrastructure.mercadopago;
 
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoCreatePaymentRequest;
 import br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -20,16 +22,31 @@ public class MercadoPagoPaymentClient {
     private final RestClient restClient;
     private final String accessToken;
     private final String notificationUrl;
+    private final boolean sandboxEnabled;
 
+    public MercadoPagoPaymentClient(
+            String accessToken,
+            String apiUrl,
+            String notificationUrl) {
+        this(accessToken, apiUrl, notificationUrl, false);
+    }
+
+    @Autowired
     public MercadoPagoPaymentClient(
             @Value("${mercadopago.access.token:}") String accessToken,
             @Value("${mercadopago.api.url:https://api.mercadopago.com/v1}") String apiUrl,
-            @Value("${mercadopago.notification.url:}") String notificationUrl) {
+            @Value("${mercadopago.notification.url:}") String notificationUrl,
+            @Value("${mercadopago.sandbox.enabled:false}") boolean sandboxEnabled) {
         this.accessToken = (accessToken != null) ? accessToken.trim() : "";
         this.notificationUrl = (notificationUrl != null) ? notificationUrl.trim() : "";
+        this.sandboxEnabled = sandboxEnabled;
         this.restClient = RestClient.builder()
                 .baseUrl(apiUrl)
                 .build();
+    }
+
+    public boolean isSandboxEnabled() {
+        return sandboxEnabled;
     }
 
     public MercadoPagoPaymentResponse createPixPayment(
@@ -39,15 +56,24 @@ public class MercadoPagoPaymentClient {
             String payerName,
             OffsetDateTime expirationDate) {
 
-        if (accessToken.isBlank()) {
-            log.info("MERCADOPAGO_ACCESS_TOKEN não configurado. Gerando pagamento PIX simulado.");
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new MercadoPagoPaymentException("Valor do pagamento PIX inválido: " + amount);
+        }
+
+        if (sandboxEnabled) {
+            log.warn("Modo sandbox do Mercado Pago ativado explicitamente (mercadopago.sandbox.enabled=true). Gerando pagamento PIX simulado.");
             return createSimulatedPixPayment(amount);
+        }
+
+        if (accessToken.isBlank()) {
+            log.error("MERCADOPAGO_ACCESS_TOKEN não configurado e modo sandbox desativado. Não é possível gerar pagamento PIX.");
+            throw new MercadoPagoPaymentException("Gateway de pagamento PIX não configurado (MERCADOPAGO_ACCESS_TOKEN ausente).");
         }
 
         try {
             String expirationIso = (expirationDate != null)
-                    ? expirationDate.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                    : OffsetDateTime.now().plusHours(2).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                    ? expirationDate.atZoneSameInstant(AgendamentoStateHandler.STUDIO_ZONE).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                    : OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).plusHours(2).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
 
             String email = (payerEmail != null && !payerEmail.isBlank())
                     ? payerEmail
@@ -67,7 +93,7 @@ public class MercadoPagoPaymentClient {
 
             log.info("Criando cobrança PIX no Mercado Pago no valor de R$ {}", amount);
 
-            return restClient.post()
+            MercadoPagoPaymentResponse response = restClient.post()
                     .uri("/payments")
                     .header("Authorization", "Bearer " + accessToken)
                     .header("X-Idempotency-Key", UUID.randomUUID().toString())
@@ -75,20 +101,40 @@ public class MercadoPagoPaymentClient {
                     .body(request)
                     .retrieve()
                     .body(MercadoPagoPaymentResponse.class);
+
+            if (response == null || response.getId() == null
+                    || response.extractPixCopyPaste() == null || response.extractPixCopyPaste().isBlank()) {
+                log.error("Resposta incompleta do Mercado Pago ao criar pagamento PIX (response={}).", response);
+                throw new MercadoPagoPaymentException("Resposta incompleta do Mercado Pago ao gerar código PIX.");
+            }
+
+            return response;
+        } catch (MercadoPagoPaymentException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Erro ao gerar pagamento PIX no Mercado Pago: {}. Retornando PIX simulado.", e.getMessage(), e);
-            return createSimulatedPixPayment(amount);
+            log.error("Erro ao gerar pagamento PIX no Mercado Pago: {}", e.getMessage(), e);
+            throw new MercadoPagoPaymentException("Falha na comunicação com o Mercado Pago ao gerar PIX.", e);
         }
     }
 
     public MercadoPagoPaymentResponse getPayment(String paymentId) {
-        if (accessToken.isBlank() || paymentId.startsWith("sim_")) {
-            log.info("Consultando pagamento simulado [{}] (aprovado para testes).", paymentId);
+        if (paymentId == null || paymentId.isBlank()) {
+            return null;
+        }
+
+        if (sandboxEnabled) {
+            log.warn("Consultando pagamento simulado [{}] em modo sandbox (aprovado para testes).", paymentId);
+            long parsedId = parseNumericIdOrDefault(paymentId, 123456789L);
             return MercadoPagoPaymentResponse.builder()
-                    .id(123456789L)
+                    .id(parsedId)
                     .status("approved")
                     .statusDetail("accredited")
                     .build();
+        }
+
+        if (accessToken.isBlank()) {
+            log.error("MERCADOPAGO_ACCESS_TOKEN não configurado e modo sandbox desativado. Não é possível consultar pagamento [{}].", paymentId);
+            return null;
         }
 
         try {
@@ -101,6 +147,14 @@ public class MercadoPagoPaymentClient {
         } catch (Exception e) {
             log.error("Erro ao consultar pagamento [{}] no Mercado Pago: {}", paymentId, e.getMessage(), e);
             return null;
+        }
+    }
+
+    private long parseNumericIdOrDefault(String paymentId, long fallback) {
+        try {
+            return Long.parseLong(paymentId.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 

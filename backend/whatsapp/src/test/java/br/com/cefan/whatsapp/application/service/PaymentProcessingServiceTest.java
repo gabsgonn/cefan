@@ -107,4 +107,80 @@ class PaymentProcessingServiceTest {
         verifyNoInteractions(paymentClient);
         verifyNoInteractions(evolutionApiClient);
     }
+
+    @Test
+    void shouldRejectLatePaymentWhenAppointmentIsAlreadyExpiredAndBeIdempotentOnResend() {
+        appointment.setStatus(AppointmentStatus.EXPIRADO);
+        when(appointmentRepository.findByMpPaymentIdForUpdate("987654321")).thenReturn(Optional.of(appointment));
+        when(paymentClient.getPayment("987654321")).thenReturn(MercadoPagoPaymentResponse.builder()
+                .id(987654321L)
+                .status("approved")
+                .statusDetail("accredited")
+                .build());
+
+        // 1ª entrega do webhook: notifica cliente uma vez e marca latePaymentNotified = true
+        boolean firstResult = service.handlePaymentNotification("987654321");
+        assertFalse(firstResult);
+        assertEquals(AppointmentStatus.EXPIRADO, appointment.getStatus());
+        assertTrue(Boolean.TRUE.equals(appointment.getLatePaymentNotified()));
+        verify(appointmentRepository, times(1)).save(appointment);
+        verify(evolutionApiClient, times(1)).sendTextMessage(eq("5511977777777"), contains("Após o Prazo de Reserva"));
+
+        // 2ª entrega (reenvio do webhook pelo Mercado Pago): idempotente, NÃO duplica mensagem nem transbordo
+        boolean secondResult = service.handlePaymentNotification("987654321");
+        assertFalse(secondResult);
+        verify(evolutionApiClient, times(1)).sendTextMessage(anyString(), anyString());
+        verify(paymentClient, times(1)).getPayment("987654321");
+    }
+
+    @Test
+    void shouldBeIdempotentWhenConfirmedWebhookIsResent() {
+        appointment.setStatus(AppointmentStatus.CONFIRMADO);
+        when(appointmentRepository.findByMpPaymentIdForUpdate("987654321")).thenReturn(Optional.of(appointment));
+
+        boolean result = service.handlePaymentNotification("987654321");
+
+        assertTrue(result);
+        verifyNoInteractions(paymentClient);
+        verifyNoInteractions(evolutionApiClient);
+        verify(appointmentRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectLatePaymentWhenPendingAppointmentIsOverdueBeforeCronRuns() {
+        appointment.setStatus(AppointmentStatus.AGUARDANDO_PAGAMENTO);
+        appointment.setExpiresAt(OffsetDateTime.now().minusMinutes(10));
+        when(appointmentRepository.findByMpPaymentIdForUpdate("987654321")).thenReturn(Optional.of(appointment));
+        when(paymentClient.getPayment("987654321")).thenReturn(MercadoPagoPaymentResponse.builder()
+                .id(987654321L)
+                .status("approved")
+                .statusDetail("accredited")
+                .build());
+
+        boolean result = service.handlePaymentNotification("987654321");
+
+        assertFalse(result);
+        assertEquals(AppointmentStatus.EXPIRADO, appointment.getStatus());
+        assertTrue(Boolean.TRUE.equals(appointment.getLatePaymentNotified()));
+        verify(appointmentRepository).save(appointment);
+        verify(evolutionApiClient).sendTextMessage(eq("5511977777777"), contains("Após o Prazo de Reserva"));
+    }
+
+    @Test
+    void shouldRejectLatePaymentWhenAppointmentWasCancelled() {
+        appointment.setStatus(AppointmentStatus.CANCELADO);
+        when(appointmentRepository.findByMpPaymentIdForUpdate("987654321")).thenReturn(Optional.of(appointment));
+        when(paymentClient.getPayment("987654321")).thenReturn(MercadoPagoPaymentResponse.builder()
+                .id(987654321L)
+                .status("approved")
+                .statusDetail("accredited")
+                .build());
+
+        boolean result = service.handlePaymentNotification("987654321");
+
+        assertFalse(result);
+        assertEquals(AppointmentStatus.CANCELADO, appointment.getStatus());
+        assertTrue(Boolean.TRUE.equals(appointment.getLatePaymentNotified()));
+        verify(appointmentRepository, times(1)).save(appointment);
+    }
 }
