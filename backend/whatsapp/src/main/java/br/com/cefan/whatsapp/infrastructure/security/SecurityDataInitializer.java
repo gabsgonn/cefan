@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.infrastructure.security;
 
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
@@ -62,7 +63,7 @@ public class SecurityDataInitializer implements ApplicationRunner {
                     .passwordHash(passwordEncoder.encode(adminPassword))
                     .isActive(true)
                     .reputation(new BigDecimal("5.0"))
-                    .hireDate(LocalDate.now())
+                    .hireDate(LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE))
                     .build();
             userRepository.save(owner);
             log.info("Usuário Dono inicial [{}] criado com sucesso com hash BCrypt.", normalizedEmail);

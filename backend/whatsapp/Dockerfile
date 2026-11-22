@@ -13,6 +13,9 @@ RUN ./mvnw clean package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+ENV TZ=America/Sao_Paulo
+
 COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8082

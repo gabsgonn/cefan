@@ -1,5 +1,6 @@
 package br.com.cefan.whatsapp.application.service;
 
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.Appointment;
 import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -54,10 +56,10 @@ public class AppointmentSchedulingService {
     /**
      * Rotina assíncrona que roda a cada 5 minutos verificando agendamentos que expiraram (2 horas sem pagamento do sinal).
      */
-    @Scheduled(cron = "0 */5 * * * *")
+    @Scheduled(cron = "0 */5 * * * *", zone = "America/Sao_Paulo")
     @Transactional
     public void expireUnpaidAppointments() {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE);
         List<Appointment> expired = appointmentRepository.findByStatusAndExpiresAtBefore(
                 AppointmentStatus.AGUARDANDO_PAGAMENTO, now);
 
@@ -102,10 +104,10 @@ public class AppointmentSchedulingService {
     /**
      * Rotina diária (às 09:00) que envia lembrete 24h antes da sessão para agendamentos confirmados.
      */
-    @Scheduled(cron = "0 0 9 * * *")
+    @Scheduled(cron = "0 0 9 * * *", zone = "America/Sao_Paulo")
     @Transactional
     public void send24hReminders() {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE);
         OffsetDateTime next26Hours = now.plusHours(26);
 
         List<Appointment> upcoming = appointmentRepository.findByStatusAndScheduledStartBetweenAndReminder24hSentFalse(
@@ -118,8 +120,9 @@ public class AppointmentSchedulingService {
         for (Appointment appointment : upcoming) {
             String customerPhone = appointment.getCustomer().getPhone();
             String customerName = appointment.getCustomer().getName();
-            String dateFormatted = appointment.getScheduledStart().format(DATE_FORMATTER);
-            String timeFormatted = appointment.getScheduledStart().format(TIME_FORMATTER);
+            ZonedDateTime startBr = appointment.getScheduledStart().atZoneSameInstant(AgendamentoStateHandler.STUDIO_ZONE);
+            String dateFormatted = startBr.format(DATE_FORMATTER);
+            String timeFormatted = startBr.format(TIME_FORMATTER);
 
             String reminderMessage = String.format(
                     "🔔 *Lembrete da sua Sessão de Tatuagem!* 🔔\n\n" +

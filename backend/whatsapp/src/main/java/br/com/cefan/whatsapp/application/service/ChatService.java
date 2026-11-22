@@ -1,6 +1,7 @@
 package br.com.cefan.whatsapp.application.service;
 
 import br.com.cefan.whatsapp.api.dto.ChatMessageDto;
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.ChatMessage;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
@@ -55,7 +56,7 @@ public class ChatService {
                 .mediaUrl(mediaUrl)
                 .mediaType(mediaType)
                 .isFromMe(false)
-                .createdAt(OffsetDateTime.now())
+                .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .build();
 
         ChatMessage saved = chatMessageRepository.save(message);
@@ -77,7 +78,7 @@ public class ChatService {
                 .senderName("IA Vício Tattoo")
                 .content(content)
                 .isFromMe(true)
-                .createdAt(OffsetDateTime.now())
+                .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .build();
 
         ChatMessage saved = chatMessageRepository.save(message);
@@ -114,14 +115,14 @@ public class ChatService {
                 .senderName(agentName)
                 .content(content)
                 .isFromMe(true)
-                .createdAt(OffsetDateTime.now())
+                .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .build();
 
         ChatMessage saved = chatMessageRepository.save(message);
         ChatMessageDto dto = ChatMessageDto.fromEntity(saved);
 
         // Atualiza última interação
-        session.setLastInteractionAt(OffsetDateTime.now());
+        session.setLastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         sessionRepository.save(session);
 
         // 3. Notifica clientes conectados via SSE
@@ -208,7 +209,7 @@ public class ChatService {
 
         session.setCurrentState(ConversationState.MENU);
         session.setContextData(null);
-        session.setLastInteractionAt(OffsetDateTime.now());
+        session.setLastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         sessionRepository.save(session);
 
         TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);

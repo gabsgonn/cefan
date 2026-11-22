@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 @Entity
@@ -55,7 +56,7 @@ public class ChatMessage {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
-    private OffsetDateTime createdAt = OffsetDateTime.now();
+    private OffsetDateTime createdAt = OffsetDateTime.now(ZoneId.of("America/Sao_Paulo"));
 
     public enum SenderType {
         CUSTOMER,

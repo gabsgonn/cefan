@@ -16,6 +16,7 @@ import br.com.cefan.whatsapp.domain.repository.CustomerRepository;
 import br.com.cefan.whatsapp.domain.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -137,6 +138,11 @@ public class AppointmentService {
             }
         }
 
+        if (request.getScheduledStart() != null && request.getScheduledEnd() != null
+                && !request.getScheduledEnd().isAfter(request.getScheduledStart())) {
+            throw new IllegalArgumentException("O horário de término deve ser posterior ao horário de início.");
+        }
+
         Appointment appointment = Appointment.builder()
                 .customer(customer)
                 .artist(artist)
@@ -148,7 +154,12 @@ public class AppointmentService {
                 .depositAmount(deposit)
                 .build();
 
-        appointment = appointmentRepository.save(appointment);
+        try {
+            appointment = appointmentRepository.saveAndFlush(appointment);
+        } catch (DataIntegrityViolationException e) {
+            log.warn("Conflito ao criar agendamento manual no painel: {}", e.getMessage());
+            throw new IllegalStateException("Já existe um agendamento ativo para este profissional neste horário. Escolha outro horário ou profissional.", e);
+        }
         syncCustomerSessionArtist(customer, artist);
         return AppointmentResponse.fromEntity(appointment);
     }
@@ -201,7 +212,17 @@ public class AppointmentService {
             appointment.setStatus(request.getStatus());
         }
 
-        appointment = appointmentRepository.save(appointment);
+        if (appointment.getScheduledStart() != null && appointment.getScheduledEnd() != null
+                && !appointment.getScheduledEnd().isAfter(appointment.getScheduledStart())) {
+            throw new IllegalArgumentException("O horário de término deve ser posterior ao horário de início.");
+        }
+
+        try {
+            appointment = appointmentRepository.saveAndFlush(appointment);
+        } catch (DataIntegrityViolationException e) {
+            log.warn("Conflito ao atualizar agendamento [{}] no painel: {}", id, e.getMessage());
+            throw new IllegalStateException("Já existe um agendamento ativo para este profissional neste horário. Escolha outro horário ou profissional.", e);
+        }
         syncCustomerSessionArtist(appointment.getCustomer(), appointment.getArtist());
         return AppointmentResponse.fromEntity(appointment);
     }

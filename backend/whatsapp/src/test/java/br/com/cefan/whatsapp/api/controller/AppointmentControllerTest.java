@@ -119,4 +119,26 @@ class AppointmentControllerTest {
 
         verify(appointmentService).update(eq(id), any(UpdateAppointmentRequest.class));
     }
+
+    @Test
+    void shouldReturnFriendlyConflictMessageWhenOverlappingAppointmentOccurs() throws Exception {
+        CreateAppointmentRequest request = CreateAppointmentRequest.builder()
+                .customerName("Aline")
+                .customerPhone("5511988882222")
+                .scheduledStart(OffsetDateTime.now().plusDays(1))
+                .scheduledEnd(OffsetDateTime.now().plusDays(1).plusHours(2))
+                .totalPrice(new BigDecimal("450.00"))
+                .depositAmount(new BigDecimal("135.00"))
+                .isTouchup(false)
+                .build();
+
+        when(appointmentService.create(any(CreateAppointmentRequest.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("excl_appointments_no_overlap_per_artist"));
+
+        mockMvc.perform(post("/api/v1/appointments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("Já existe um agendamento ativo")));
+    }
 }

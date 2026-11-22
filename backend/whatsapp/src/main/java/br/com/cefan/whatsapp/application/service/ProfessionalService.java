@@ -1,6 +1,7 @@
 package br.com.cefan.whatsapp.application.service;
 
 import br.com.cefan.whatsapp.api.dto.ProfessionalDto;
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.model.User;
 import br.com.cefan.whatsapp.domain.model.UserRole;
@@ -73,7 +74,7 @@ public class ProfessionalService {
                 .artistRateType(dto.getArtistRateType() != null ? dto.getArtistRateType() : "PERCENTAGE")
                 .artistRateValue(dto.getArtistRateValue() != null ? dto.getArtistRateValue() : new BigDecimal("60.00"))
                 .reputation(dto.getReputation() != null ? dto.getReputation() : new BigDecimal("5.0"))
-                .hireDate(dto.getHireDate() != null ? dto.getHireDate() : LocalDate.now())
+                .hireDate(dto.getHireDate() != null ? dto.getHireDate() : LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .isActive(dto.getIsActive() != null ? dto.getIsActive() : true)
                 .build();
 
@@ -141,17 +142,17 @@ public class ProfessionalService {
         TenantConfig tenant = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
 
         List<ArtistSeedData> team = List.of(
-                new ArtistSeedData("Carlos Silveira", "carlos@viciotattoo.com", "5511988880001", "Realismo Preto e Cinza, Retratos", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(24)),
-                new ArtistSeedData("Mariana Rocha", "mariana@viciotattoo.com", "5511988880002", "Fineline, Traço Fino, Minimalista, Florais", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now().minusMonths(18)),
-                new ArtistSeedData("Lucas 'Blade'", "lucas@viciotattoo.com", "5511988880003", "Blackwork, Tribal, Geométrico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now().minusMonths(30)),
-                new ArtistSeedData("Beatriz Lima", "beatriz@viciotattoo.com", "5511988880004", "Aquarela, Floral, Botânico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(12)),
-                new ArtistSeedData("Rodrigo 'Old' Santos", "rodrigo@viciotattoo.com", "5511988880005", "Old School, Tradicional Americano", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(36)),
-                new ArtistSeedData("Felipe Alcantara", "felipe@viciotattoo.com", "5511988880006", "Geométrico, Pontilhismo, Mandala", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now().minusMonths(15)),
-                new ArtistSeedData("Camila Fernandes", "camila@viciotattoo.com", "5511988880007", "Microrealismo, Caligrafia, Delicadas", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now().minusMonths(20)),
-                new ArtistSeedData("Gabriel Moura", "gabriel@viciotattoo.com", "5511988880008", "Neo Tradicional, Oriental, Anime", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now().minusMonths(14)),
-                new ArtistSeedData("Larissa Piercing", "larissa@viciotattoo.com", "5511988880009", "Body Piercing, Aplicações & Joias", "HOURLY", new BigDecimal("80.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(22)),
-                new ArtistSeedData("Thiago 'Dark' Souza", "thiago@viciotattoo.com", "5511988880010", "Dark Art, Lettering, Chicano", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.7"), LocalDate.now().minusMonths(10)),
-                new ArtistSeedData("Julia Piercer", "julia@viciotattoo.com", "5511988880011", "Body Piercing, Microdermal, Mini Tattoos", "HOURLY", new BigDecimal("75.00"), new BigDecimal("4.9"), LocalDate.now().minusMonths(8))
+                new ArtistSeedData("Carlos Silveira", "carlos@viciotattoo.com", "5511988880001", "Realismo Preto e Cinza, Retratos", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(24)),
+                new ArtistSeedData("Mariana Rocha", "mariana@viciotattoo.com", "5511988880002", "Fineline, Traço Fino, Minimalista, Florais", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(18)),
+                new ArtistSeedData("Lucas 'Blade'", "lucas@viciotattoo.com", "5511988880003", "Blackwork, Tribal, Geométrico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(30)),
+                new ArtistSeedData("Beatriz Lima", "beatriz@viciotattoo.com", "5511988880004", "Aquarela, Floral, Botânico", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(12)),
+                new ArtistSeedData("Rodrigo 'Old' Santos", "rodrigo@viciotattoo.com", "5511988880005", "Old School, Tradicional Americano", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.9"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(36)),
+                new ArtistSeedData("Felipe Alcantara", "felipe@viciotattoo.com", "5511988880006", "Geométrico, Pontilhismo, Mandala", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(15)),
+                new ArtistSeedData("Camila Fernandes", "camila@viciotattoo.com", "5511988880007", "Microrealismo, Caligrafia, Delicadas", "PERCENTAGE", new BigDecimal("65.00"), new BigDecimal("5.0"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(20)),
+                new ArtistSeedData("Gabriel Moura", "gabriel@viciotattoo.com", "5511988880008", "Neo Tradicional, Oriental, Anime", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.8"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(14)),
+                new ArtistSeedData("Larissa Piercing", "larissa@viciotattoo.com", "5511988880009", "Body Piercing, Aplicações & Joias", "HOURLY", new BigDecimal("80.00"), new BigDecimal("4.9"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(22)),
+                new ArtistSeedData("Thiago 'Dark' Souza", "thiago@viciotattoo.com", "5511988880010", "Dark Art, Lettering, Chicano", "PERCENTAGE", new BigDecimal("60.00"), new BigDecimal("4.7"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(10)),
+                new ArtistSeedData("Julia Piercer", "julia@viciotattoo.com", "5511988880011", "Body Piercing, Microdermal, Mini Tattoos", "HOURLY", new BigDecimal("75.00"), new BigDecimal("4.9"), LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).minusMonths(8))
         );
 
         for (ArtistSeedData a : team) {

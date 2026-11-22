@@ -8,6 +8,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 @Entity
@@ -45,7 +46,7 @@ public class ConversationSession {
 
     @Column(name = "last_interaction_at", nullable = false)
     @Builder.Default
-    private OffsetDateTime lastInteractionAt = OffsetDateTime.now();
+    private OffsetDateTime lastInteractionAt = OffsetDateTime.now(ZoneId.of("America/Sao_Paulo"));
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

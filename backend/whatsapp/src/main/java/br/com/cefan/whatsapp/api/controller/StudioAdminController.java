@@ -2,6 +2,7 @@ package br.com.cefan.whatsapp.api.controller;
 
 import br.com.cefan.whatsapp.api.dto.ChatMessageDto;
 import br.com.cefan.whatsapp.application.service.ChatService;
+import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
@@ -219,7 +220,7 @@ public class StudioAdminController implements WebMvcConfigurer {
         // Garante transbordo humano ativo na sessão
         sessionRepository.findById(id).ifPresent(session -> {
             session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
-            session.setLastInteractionAt(OffsetDateTime.now());
+            session.setLastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
             sessionRepository.save(session);
         });
 
@@ -305,7 +306,7 @@ public class StudioAdminController implements WebMvcConfigurer {
         statusMap.put("evolutionApiConnected", true);
         statusMap.put("evolutionLiveReachable", evoReachable);
         statusMap.put("mercadoPagoWebhookActive", true);
-        statusMap.put("timestamp", OffsetDateTime.now());
+        statusMap.put("timestamp", OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         return ResponseEntity.ok(statusMap);
     }
 
@@ -321,7 +322,7 @@ public class StudioAdminController implements WebMvcConfigurer {
         response.put("restarted", restarted);
         response.put("instance", instanceName);
         response.put("message", "Instância do WhatsApp (" + instanceName + ") reiniciada e sincronizada com sucesso!");
-        response.put("timestamp", OffsetDateTime.now());
+        response.put("timestamp", OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         return ResponseEntity.ok(response);
     }
 
@@ -345,7 +346,7 @@ public class StudioAdminController implements WebMvcConfigurer {
         response.put("status", "REPORTED");
         response.put("category", category);
         response.put("message", "Problema registrado com diagnóstico de infraestrutura (Protocolo " + protocol + ").");
-        response.put("timestamp", OffsetDateTime.now());
+        response.put("timestamp", OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         return ResponseEntity.ok(response);
     }
 
@@ -369,7 +370,7 @@ public class StudioAdminController implements WebMvcConfigurer {
 
         ConversationState oldState = session.getCurrentState();
         session.setCurrentState(request.getState());
-        session.setLastInteractionAt(OffsetDateTime.now());
+        session.setLastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         session = sessionRepository.save(session);
 
         Customer customer = session.getCustomer();
@@ -454,7 +455,7 @@ public class StudioAdminController implements WebMvcConfigurer {
         try {
             emitter.send(SseEmitter.event()
                     .name("connected")
-                    .data(Map.of("status", "connected", "timestamp", OffsetDateTime.now().toString())));
+                    .data(Map.of("status", "connected", "timestamp", OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).toString())));
         } catch (IOException e) {
             sseEmitters.remove(emitter);
         }
@@ -544,7 +545,7 @@ public class StudioAdminController implements WebMvcConfigurer {
                 .title(title)
                 .message(message)
                 .customerPhone(customerPhone)
-                .createdAt(OffsetDateTime.now())
+                .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .read(false)
                 .build();
 
@@ -565,6 +566,23 @@ public class StudioAdminController implements WebMvcConfigurer {
     // ==========================================================
     // 4. TRATAMENTO GLOBAL DE EXCEÇÕES DE NEGÓCIO (@RestControllerAdvice)
     // ==========================================================
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, String>> handleIllegalState(IllegalStateException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Conflito ao processar a operação."));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(org.springframework.dao.DataIntegrityViolationException ex) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        if (raw != null && raw.contains("chk_appointments_valid_range")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", "O horário de término deve ser posterior ao horário de início."));
+        }
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("message", "Já existe um agendamento ativo para este profissional neste horário. Escolha outro horário ou profissional."));
+    }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
