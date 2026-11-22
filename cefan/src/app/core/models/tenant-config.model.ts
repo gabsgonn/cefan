@@ -19,4 +19,15 @@ export interface TenantConfig {
   humanTransferMessage?: string;
   botResetMessage?: string;
   absenceMessage?: string;
+  orcamentoShowGreeting?: boolean;
+  orcamentoShowStyle?: boolean;
+  orcamentoShowSize?: boolean;
+  orcamentoShowDuration?: boolean;
+  orcamentoShowComplexity?: boolean;
+  orcamentoShowLocation?: boolean;
+  orcamentoShowArtists?: boolean;
+  orcamentoShowDescription?: boolean;
+  orcamentoShowPrice?: boolean;
+  orcamentoShowMaterialsNote?: boolean;
+  orcamentoShowAdjustHint?: boolean;
 }

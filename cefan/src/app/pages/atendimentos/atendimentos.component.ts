@@ -25,7 +25,9 @@ export interface AiAnalysisParsed {
   estimatedSizeCm?: string;
   estimatedHours?: number;
   complexityLevel?: string;
+  detectedBodyLocation?: string;
   suggestedBodyLocation?: string;
+  customerDescription?: string;
   technicalNotes?: string;
   recommendedArtists?: string[];
   basePrice?: number;
@@ -318,6 +320,10 @@ export interface AiAnalysisParsed {
                     <div class="ai-metric" *ngIf="art.isFechamento || art.sizeCategory === 'FECHAMENTO' || art.priceDisplay === 'A combinar'">
                       <span class="ai-label">Valor Estimado:</span>
                       <span class="ai-value highlight-artist">A combinar com o tatuador</span>
+                    </div>
+                    <div class="ai-metric" *ngIf="art.detectedBodyLocation">
+                      <span class="ai-label">Local Detectado:</span>
+                      <span class="ai-value">{{ art.detectedBodyLocation }}</span>
                     </div>
                     <div class="ai-metric" *ngIf="art.suggestedBodyLocation">
                       <span class="ai-label">Local Sugerido:</span>

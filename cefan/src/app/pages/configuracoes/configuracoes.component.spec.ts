@@ -33,7 +33,18 @@ describe('ConfiguracoesComponent - Parametrização Global & Diagnóstico', () =
     pixConfirmedMessage: 'PIX confirmado!',
     humanTransferMessage: 'Transferindo para tatuador',
     botResetMessage: 'Conversa reiniciada',
-    absenceMessage: 'Fora de expediente (Seg-Sáb 10h às 20h)'
+    absenceMessage: 'Fora de expediente (Seg-Sáb 10h às 20h)',
+    orcamentoShowGreeting: true,
+    orcamentoShowStyle: true,
+    orcamentoShowSize: true,
+    orcamentoShowDuration: true,
+    orcamentoShowComplexity: true,
+    orcamentoShowLocation: true,
+    orcamentoShowArtists: true,
+    orcamentoShowDescription: true,
+    orcamentoShowPrice: true,
+    orcamentoShowMaterialsNote: true,
+    orcamentoShowAdjustHint: true
   };
 
   beforeEach(async () => {
@@ -154,5 +165,32 @@ describe('ConfiguracoesComponent - Parametrização Global & Diagnóstico', () =
     component.restartWhatsAppBot();
     expect(component.restartingBot()).toBe(false);
     expect(component.feedbackMessage()).toContain('reiniciada');
+  });
+
+  it('should update live quote preview when quote visibility toggles change and persist them', () => {
+    expect(component.buildQuotePreviewText()).toContain('Olá, Cliente!');
+    expect(component.buildQuotePreviewText()).toContain('📌 *Estilo:* Old School / Tradicional');
+    expect(component.buildQuotePreviewText()).toContain('💰 *Faixa de Preço Estimada:*');
+    expect(component.buildQuotePreviewText()).toContain('⚠️ _Estimativa preliminar calculada por IA');
+    expect(component.buildQuotePreviewText()).toContain('1️⃣ *Agendar sessão*');
+
+    component.config.orcamentoShowPrice = false;
+    component.config.orcamentoShowDescription = false;
+    component.config.orcamentoShowGreeting = false;
+
+    const updatedPreview = component.buildQuotePreviewText();
+    expect(updatedPreview).not.toContain('Olá, Cliente!');
+    expect(updatedPreview).not.toContain('💰 *Faixa de Preço Estimada:*');
+    expect(updatedPreview).not.toContain('⚠️ _Estimativa preliminar calculada por IA');
+    expect(updatedPreview).not.toContain('📝 *Sobre a sua arte:*');
+    // 3 post-quote actions are non-parameterizable and always visible
+    expect(updatedPreview).toContain('1️⃣ *Agendar sessão*');
+    expect(updatedPreview).toContain('2️⃣ *Falar com o tatuador*');
+    expect(updatedPreview).toContain('3️⃣ *Voltar ao menu*');
+
+    component.saveConfig();
+    expect(lastSavedConfig?.orcamentoShowPrice).toBe(false);
+    expect(lastSavedConfig?.orcamentoShowDescription).toBe(false);
+    expect(lastSavedConfig?.orcamentoShowGreeting).toBe(false);
   });
 });

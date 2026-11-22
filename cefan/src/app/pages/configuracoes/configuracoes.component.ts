@@ -470,6 +470,179 @@ import { DOC_ORIENTATION, NgxImageCompressService } from 'ngx-image-compress';
           <span class="hint">Aviso sobre o horário de funcionamento do estúdio ({{ config.workingDays || 'SEG-SAB' }}, {{ config.openingTime || '10:00' }} às {{ config.closingTime || '20:00' }}).</span>
         </div>
 
+        <div class="card-header" style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+          <h3>Campos Visíveis no Orçamento com IA (WhatsApp)</h3>
+          <p>
+            Escolha quais informações aparecem na mensagem de orçamento enviada ao cliente. As observações técnicas de agulhas e bancada ficam restritas ao painel do tatuador. O aviso de estimativa preliminar (quando o preço estiver ativo) e as 3 opções pós-orçamento são fixos.
+          </p>
+        </div>
+
+        <div class="quote-customization-grid">
+          <div class="quote-toggles-list">
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowGreeting')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Saudação Inicial ("Olá, Cliente! Analisamos...")
+                  @if (isFieldChanged('orcamentoShowGreeting')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Exibe a saudação personalizada antes dos detalhes da arte.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowGreeting" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowStyle')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Estilo Identificado (📌 Estilo)
+                  @if (isFieldChanged('orcamentoShowStyle')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Mostra o estilo artístico detectado pela IA (ex: Old School / Tradicional).</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowStyle" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowSize')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Tamanho Estimado (📏 Tamanho)
+                  @if (isFieldChanged('orcamentoShowSize')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Mostra a categoria de porte e faixa em centímetros.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowSize" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowDuration')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Tempo Estimado de Sessão (⏱️ Tempo de agulha)
+                  @if (isFieldChanged('orcamentoShowDuration')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Exibe a duração aproximada em horas de sessão.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowDuration" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowComplexity')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Nível de Complexidade (🔍 Complexidade)
+                  @if (isFieldChanged('orcamentoShowComplexity')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Exibe a classificação técnica de complexidade (BAIXA, MEDIA ou ALTA).</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowComplexity" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowLocation')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Local Detectado / Sugerido (📍 Local)
+                  @if (isFieldChanged('orcamentoShowLocation')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Mostra o local do corpo detectado na foto e até 2 sugestões anatômicas.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowLocation" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowArtists')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Tatuador Especialista Recomendado (👨‍🎨 Artista)
+                  @if (isFieldChanged('orcamentoShowArtists')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Indica o profissional do estúdio especialista no estilo da referência.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowArtists" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowDescription')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Descrição Simples da Arte (📝 Sobre a sua arte)
+                  @if (isFieldChanged('orcamentoShowDescription')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Exibe 1–2 frases em linguagem simples para o cliente (sem notas técnicas de agulhas).</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowDescription" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowPrice')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Faixa de Preço Estimada (💰 Valor + Aviso de Estimativa)
+                  @if (isFieldChanged('orcamentoShowPrice')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Se desativado, oculta a faixa de preço no orçamento e o saldo restante no resumo do PIX.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowPrice" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowMaterialsNote')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Nota de Materiais Descartáveis & Biossegurança
+                  @if (isFieldChanged('orcamentoShowMaterialsNote')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Exibe a nota sobre materiais 100% descartáveis e esterilizados.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowMaterialsNote" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-container" [class.field-changed]="isFieldChanged('orcamentoShowAdjustHint')">
+              <div class="toggle-text">
+                <span class="toggle-title">
+                  Dica de Ajuste de Tamanho (💡 Informe a medida em cm)
+                  @if (isFieldChanged('orcamentoShowAdjustHint')) { <span class="changed-badge">Alterado</span> }
+                </span>
+                <span class="toggle-desc">Orienta o cliente a enviar a medida em cm ou "fechamento" para recalcular.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" [(ngModel)]="config.orcamentoShowAdjustHint" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="quote-live-preview-box">
+            <div class="preview-box-header">
+              <span>📱 Pré-visualização da Mensagem no WhatsApp</span>
+              <span class="preview-tag">Tempo Real</span>
+            </div>
+            <pre class="whatsapp-preview-bubble">{{ buildQuotePreviewText() }}</pre>
+          </div>
+        </div>
+
         <div class="card-footer">
           @if (hasUnsavedChanges()) {
             <button type="button" class="btn btn-secondary" [disabled]="saving()" (click)="discardChanges()">
@@ -922,6 +1095,59 @@ import { DOC_ORIENTATION, NgxImageCompressService } from 'ngx-image-compress';
       gap: 0.85rem;
     }
 
+    .quote-customization-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      margin-top: 1rem;
+
+      @media (min-width: 992px) {
+        grid-template-columns: 1.2fr 1fr;
+        align-items: start;
+      }
+    }
+
+    .quote-live-preview-box {
+      position: sticky;
+      top: 1.5rem;
+      background: rgba(11, 20, 26, 0.92);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+    }
+
+    .preview-box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.85rem;
+    }
+
+    .preview-tag {
+      padding: 0.15rem 0.55rem;
+      border-radius: var(--radius-full);
+      background: rgba(16, 185, 129, 0.16);
+      color: var(--color-success);
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    .whatsapp-preview-bubble {
+      margin: 0;
+      padding: 1rem 1.1rem;
+      background: #005c4b;
+      color: #e9edef;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     .simulation-item {
       padding: 1rem 1.15rem;
       background: rgba(16, 21, 34, 0.75);
@@ -1062,7 +1288,18 @@ export class ConfiguracoesComponent implements OnInit {
     'humanTransferMessage',
     'pixConfirmedMessage',
     'botResetMessage',
-    'absenceMessage'
+    'absenceMessage',
+    'orcamentoShowGreeting',
+    'orcamentoShowStyle',
+    'orcamentoShowSize',
+    'orcamentoShowDuration',
+    'orcamentoShowComplexity',
+    'orcamentoShowLocation',
+    'orcamentoShowArtists',
+    'orcamentoShowDescription',
+    'orcamentoShowPrice',
+    'orcamentoShowMaterialsNote',
+    'orcamentoShowAdjustHint'
   ];
 
   config: TenantConfig = {
@@ -1084,7 +1321,18 @@ export class ConfiguracoesComponent implements OnInit {
     humanTransferMessage: '💬 *Transbordo para Atendimento Humano*\n\nUm dos nossos tatuadores foi notificado e já vai assumir seu atendimento por aqui em instantes. Aguarde só um momento!',
     pixConfirmedMessage: '🎉 *Agendamento Confirmado com Sucesso!*\n\nSeu pagamento do sinal foi aprovado pelo estúdio. Nos vemos no Vício Tattoo! ⚡',
     botResetMessage: '🔄 Conversa reiniciada. Como podemos te ajudar agora?',
-    absenceMessage: '🌙 *Estúdio Fora do Horário de Expediente*\n\nNosso horário de funcionamento é de Segunda a Sábado, das 10h às 20h.\nSeu atendimento já foi registrado e você pode continuar utilizando nosso assistente virtual para orçamentos e pré-agendamentos normais!'
+    absenceMessage: '🌙 *Estúdio Fora do Horário de Expediente*\n\nNosso horário de funcionamento é de Segunda a Sábado, das 10h às 20h.\nSeu atendimento já foi registrado e você pode continuar utilizando nosso assistente virtual para orçamentos e pré-agendamentos normais!',
+    orcamentoShowGreeting: true,
+    orcamentoShowStyle: true,
+    orcamentoShowSize: true,
+    orcamentoShowDuration: true,
+    orcamentoShowComplexity: true,
+    orcamentoShowLocation: true,
+    orcamentoShowArtists: true,
+    orcamentoShowDescription: true,
+    orcamentoShowPrice: true,
+    orcamentoShowMaterialsNote: true,
+    orcamentoShowAdjustHint: true
   };
 
   notifPrefs: NotificationPreferences = {
@@ -1189,7 +1437,18 @@ export class ConfiguracoesComponent implements OnInit {
             humanTransferMessage: data.humanTransferMessage || this.config.humanTransferMessage,
             pixConfirmedMessage: data.pixConfirmedMessage || this.config.pixConfirmedMessage,
             botResetMessage: data.botResetMessage || this.config.botResetMessage,
-            absenceMessage: data.absenceMessage || this.config.absenceMessage
+            absenceMessage: data.absenceMessage || this.config.absenceMessage,
+            orcamentoShowGreeting: data.orcamentoShowGreeting ?? true,
+            orcamentoShowStyle: data.orcamentoShowStyle ?? true,
+            orcamentoShowSize: data.orcamentoShowSize ?? true,
+            orcamentoShowDuration: data.orcamentoShowDuration ?? true,
+            orcamentoShowComplexity: data.orcamentoShowComplexity ?? true,
+            orcamentoShowLocation: data.orcamentoShowLocation ?? true,
+            orcamentoShowArtists: data.orcamentoShowArtists ?? true,
+            orcamentoShowDescription: data.orcamentoShowDescription ?? true,
+            orcamentoShowPrice: data.orcamentoShowPrice ?? true,
+            orcamentoShowMaterialsNote: data.orcamentoShowMaterialsNote ?? true,
+            orcamentoShowAdjustHint: data.orcamentoShowAdjustHint ?? true
           };
           this.logoPreview.set(data.logoBase64 || null);
           this.savedConfig.set({ ...this.config });
@@ -1264,6 +1523,71 @@ export class ConfiguracoesComponent implements OnInit {
     this.config.botResetMessage = '🔄 Conversa reiniciada. Como podemos te ajudar agora?';
     this.config.absenceMessage = '🌙 *Estúdio Fora do Horário de Expediente*\n\nNosso horário de funcionamento é de Segunda a Sábado, das 10h às 20h.\nSeu atendimento já foi registrado e você pode continuar utilizando nosso assistente virtual para orçamentos e pré-agendamentos normais!';
     this.showToast('Textos restaurados para os padrões sugeridos. Clique em "Salvar" para confirmar.');
+  }
+
+  buildQuotePreviewText(): string {
+    const blocks: string[] = ['🎨 *Orçamento Estimado com Inteligência Artificial* 🎨'];
+
+    if (this.config.orcamentoShowGreeting !== false) {
+      blocks.push('Olá, Cliente! Analisamos os detalhes da sua arte de referência:');
+    }
+
+    const metrics: string[] = [];
+    if (this.config.orcamentoShowStyle !== false) {
+      metrics.push('📌 *Estilo:* Old School / Tradicional');
+    }
+    if (this.config.orcamentoShowSize !== false) {
+      metrics.push('📏 *Tamanho Estimado:* Média (11 a 18 cm)');
+    }
+    if (this.config.orcamentoShowDuration !== false) {
+      metrics.push('⏱️ *Tempo Estimado:* ~2,5h de agulha');
+    }
+    if (this.config.orcamentoShowComplexity !== false) {
+      metrics.push('🔍 *Complexidade:* MEDIA');
+    }
+    if (this.config.orcamentoShowLocation !== false) {
+      metrics.push('📍 *Local Detectado:* Antebraço _(Sugestões: Panturrilha)_');
+    }
+    if (this.config.orcamentoShowArtists !== false) {
+      metrics.push('👨‍🎨 *Tatuador Especialista:* Rodrigo Old School');
+    }
+    if (metrics.length > 0) {
+      blocks.push(metrics.join('\n'));
+    }
+
+    if (this.config.orcamentoShowDescription !== false) {
+      blocks.push('📝 *Sobre a sua arte:*\nPantera clássica tradicional com traços firmes e cores vibrantes de longa duração.');
+    }
+
+    const hourly = Number(this.config.defaultHourlyRate || 150);
+    const setup = Number(this.config.fixedSetupCost || 50);
+    const base = Math.round(2.5 * hourly * 1.2 + setup);
+    const min = Math.round(base * 0.9);
+    const max = Math.round(base * 1.15);
+
+    if (this.config.orcamentoShowPrice !== false) {
+      let priceBlock = `💰 *Faixa de Preço Estimada:*\n*R$ ${min} a R$ ${max}*\n⚠️ _Estimativa preliminar calculada por IA — o valor final será confirmado pelo tatuador._`;
+      if (this.config.orcamentoShowMaterialsNote !== false) {
+        priceBlock += '\n_(Inclui materiais 100% descartáveis, esterilizados e biossegurança)_';
+      }
+      blocks.push(priceBlock);
+    } else if (this.config.orcamentoShowMaterialsNote !== false) {
+      blocks.push('_(Inclui materiais 100% descartáveis, esterilizados e biossegurança)_');
+    }
+
+    if (this.config.orcamentoShowAdjustHint !== false) {
+      blocks.push('💡 _Quer ajustar a estimativa? Informe a medida em cm (ex: 10cm) ou "fechamento"._');
+    }
+
+    blocks.push(
+      '━━━━━━━━━━━━━━━━━━━━\n' +
+      '1️⃣ *Agendar sessão*\n' +
+      '2️⃣ *Falar com o tatuador*\n' +
+      '3️⃣ *Voltar ao menu*\n\n' +
+      '👉 _Digite o número da opção desejada._'
+    );
+
+    return blocks.join('\n\n');
   }
 
   private showToast(msg: string, type: 'success' | 'error' = 'success'): void {
