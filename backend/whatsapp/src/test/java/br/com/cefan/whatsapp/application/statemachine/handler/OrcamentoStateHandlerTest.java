@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
@@ -106,6 +107,10 @@ class OrcamentoStateHandlerTest {
         assertTrue(message.contains("ALTA"));
         // 1000 * 0.9 = 900, 1000 * 1.15 = 1150
         assertTrue(message.contains("900") || message.contains("1150"));
+        assertFalse(message.contains("Digite *A*"), "Pós-orçamento não deve repetir o bloco de tamanhos A-E");
+        assertTrue(message.contains("1️⃣ *Agendar sessão*"));
+        assertTrue(message.contains("2️⃣ *Falar com o tatuador*"));
+        assertTrue(message.contains("3️⃣ *Voltar ao menu*"));
         assertNotNull(session.getContextData());
         assertTrue(session.getContextData().contains("Realismo Preto e Cinza"));
     }
@@ -127,20 +132,23 @@ class OrcamentoStateHandlerTest {
 
         String message = messageCaptor.getValue();
         assertTrue(message.contains("foto de referência"));
+        assertFalse(message.contains("Digite *A*"), "Pedido de foto não deve exibir escolha de tamanho A-E");
         verifyNoInteractions(geminiVisionClient);
     }
 
     @Test
-    void shouldTransitionToHumanHandoffWhenUserSends3() {
+    void shouldTransitionToHumanHandoffWhenUserSelectsOption2OrPollLabelAfterQuote() {
+        session.setContextData("{\"style\":\"Fineline\",\"estimatedHours\":2.0}");
+
         EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
         webhook.setInstance("cefan-studio");
         EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
         EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
-        content.setConversation("3");
+        content.setConversation("2");
         data.setMessage(content);
         webhook.setData(data);
 
-        handler.handle(customer, session, webhook, "3");
+        handler.handle(customer, session, webhook, "2");
 
         assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
@@ -194,22 +202,23 @@ class OrcamentoStateHandlerTest {
     }
 
     @Test
-    void shouldTransitionToSchedulingWhenUserSends2() {
+    void shouldTransitionToSchedulingWhenUserSendsOption1AfterQuote() {
         TenantConfig config = TenantConfig.builder()
                 .studioName("Vício Tattoo")
                 .agendamentoIntroMessage("Informe o tatuador e data desejada na grade do Vício Tattoo:")
                 .build();
         when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+        session.setContextData("{\"style\":\"Fineline\",\"estimatedHours\":2.0}");
 
         EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
         webhook.setInstance("cefan-studio");
         EvolutionWebhookRequest.WebhookData data = new EvolutionWebhookRequest.WebhookData();
         EvolutionWebhookRequest.MessageContent content = new EvolutionWebhookRequest.MessageContent();
-        content.setConversation("2");
+        content.setConversation("1");
         data.setMessage(content);
         webhook.setData(data);
 
-        handler.handle(customer, session, webhook, "2");
+        handler.handle(customer, session, webhook, "1");
 
         assertEquals(ConversationState.AGENDAMENTO_SELECAO_DATA, session.getCurrentState());
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
@@ -218,7 +227,7 @@ class OrcamentoStateHandlerTest {
     }
 
     @Test
-    void shouldRecalculateQuoteWhenCustomerSelectsSizeOptionAfterSendingPhoto() {
+    void shouldRecalculateQuoteWhenCustomerAdjustsSizeInCmAfterSendingPhoto() {
         TenantConfig config = TenantConfig.builder()
                 .studioName("Vício Tattoo")
                 .defaultHourlyRate(new BigDecimal("150.00"))
@@ -232,8 +241,8 @@ class OrcamentoStateHandlerTest {
         EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
         webhook.setInstance("cefan-studio");
 
-        // 2. Cliente escolhe opção "A" (Flash / Mini - até 5 cm -> 1.0h)
-        handler.handle(customer, session, webhook, "A");
+        // 2. Cliente ajusta a estimativa informando medida em cm ("4cm" -> Flash / Mini - 1.0h)
+        handler.handle(customer, session, webhook, "4cm");
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
@@ -241,7 +250,33 @@ class OrcamentoStateHandlerTest {
         String reply = messageCaptor.getValue();
         assertTrue(reply.contains("Flash / Mini (até 5 cm)"));
         assertTrue(reply.contains("1,0h de agulha") || reply.contains("1.0h de agulha"));
+        assertFalse(reply.contains("Digite *A*"));
+        assertTrue(reply.contains("1️⃣ *Agendar sessão*"));
         assertTrue(session.getContextData().contains("\"sizeCategory\":\"FLASH\""));
+    }
+
+    @Test
+    void shouldReplyFriendlyAndResendThreeActionsOnInvalidInputAfterQuoteWithoutChangingState() {
+        String originalContext = "{\"style\":\"Blackwork / Geométrico\",\"complexityLevel\":\"MEDIA\",\"complexityMultiplier\":1.2,\"estimatedHours\":2.5}";
+        session.setContextData(originalContext);
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+
+        handler.handle(customer, session, webhook, "quero 2 tatuagens");
+        handler.handle(customer, session, webhook, "oi");
+
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+        assertEquals(originalContext, session.getContextData());
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient, times(2)).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        for (String reply : messageCaptor.getAllValues()) {
+            assertTrue(reply.contains("Não entendi sua resposta"));
+            assertTrue(reply.contains("1️⃣ *Agendar sessão*"));
+            assertTrue(reply.contains("2️⃣ *Falar com o tatuador*"));
+            assertTrue(reply.contains("3️⃣ *Voltar ao menu*"));
+        }
     }
 
     @Test
@@ -364,5 +399,78 @@ class OrcamentoStateHandlerTest {
         assertEquals("Carlos Silveira", session.getAssignedArtistName());
         assertTrue(session.getContextData().contains("\"style\":\"Realismo Preto e Cinza\""));
         assertTrue(session.getContextData().contains("\"priceDisplay\":\"A combinar\""));
+    }
+
+    @Test
+    void shouldAskToConfirmSuggestedArtistWhenTransitioningFromQuoteToScheduling() {
+        br.com.cefan.whatsapp.domain.repository.UserRepository userRepository = mock(br.com.cefan.whatsapp.domain.repository.UserRepository.class);
+        br.com.cefan.whatsapp.domain.model.User marianaArtist = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Mariana Rocha")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .specialties("Fineline, Traço Fino")
+                .isActive(true)
+                .build();
+        when(userRepository.findAll()).thenReturn(List.of(marianaArtist));
+
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .openingTime("10:00")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        OrcamentoStateHandler handlerWithUsers = new OrcamentoStateHandler(
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, null, userRepository);
+
+        session.setContextData("{\"style\":\"Fineline\",\"estimatedHours\":2.0,\"recommendedArtists\":[\"Mariana Rocha\"]}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        handlerWithUsers.handle(customer, session, webhook, "1");
+
+        assertEquals(ConversationState.AGENDAMENTO_SELECAO_DATA, session.getCurrentState());
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), messageCaptor.capture());
+        String reply = messageCaptor.getValue();
+        assertTrue(reply.contains("Etapa 1 de 3 — Profissional"));
+        assertTrue(reply.contains("Mariana Rocha"));
+        assertTrue(reply.contains("sim"));
+    }
+
+    @Test
+    void shouldRouteToHumanHandoffOnOption1WhenEstimatedSessionExceedsOperatingHours() {
+        br.com.cefan.whatsapp.domain.repository.UserRepository userRepository = mock(br.com.cefan.whatsapp.domain.repository.UserRepository.class);
+        br.com.cefan.whatsapp.api.controller.StudioAdminController adminController = mock(br.com.cefan.whatsapp.api.controller.StudioAdminController.class);
+        br.com.cefan.whatsapp.domain.model.User carlos = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(UUID.randomUUID())
+                .name("Carlos Silveira")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .specialties("Realismo Preto e Cinza")
+                .isActive(true)
+                .build();
+        when(userRepository.findAll()).thenReturn(List.of(carlos));
+
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .openingTime("10:00")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .build();
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+
+        OrcamentoStateHandler handlerWithUsers = new OrcamentoStateHandler(
+                evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, adminController, userRepository);
+
+        session.setContextData("{\"style\":\"Realismo Preto e Cinza\",\"estimatedHours\":11.0,\"recommendedArtists\":[\"Carlos Silveira\"]}");
+
+        EvolutionWebhookRequest webhook = new EvolutionWebhookRequest();
+        webhook.setInstance("cefan-studio");
+        handlerWithUsers.handle(customer, session, webhook, "1");
+
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        verify(adminController).publishNotification(eq("HUMAN_REQUEST"), contains("11h"), anyString(), eq("5511988888888"));
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511988888888"), contains("ultrapassa nosso expediente"));
     }
 }

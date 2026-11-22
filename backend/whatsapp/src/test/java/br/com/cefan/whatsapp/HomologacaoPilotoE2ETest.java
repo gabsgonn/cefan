@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -39,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class HomologacaoPilotoE2ETest {
 
     @Autowired
@@ -233,8 +234,8 @@ class HomologacaoPilotoE2ETest {
         // =========================================================================
         // CRITÉRIO 4: Agendamento com Validação de Horário + PIX Mercado Pago
         // =========================================================================
-        // Cliente envia "2" para iniciar agendamento
-        String webhookOpcao2 = """
+        // Cliente envia "1" (pós-orçamento: 1 = Agendar sessão) para iniciar agendamento
+        String webhookOpcaoAgendar = """
                 {
                   "event": "messages.upsert",
                   "instance": "cefan-studio",
@@ -246,14 +247,14 @@ class HomologacaoPilotoE2ETest {
                     },
                     "pushName": "Beatriz Cliente",
                     "message": {
-                      "conversation": "2"
+                      "conversation": "1"
                     }
                   }
                 }
                 """;
         mockMvc.perform(post("/api/v1/webhooks/evolution")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(webhookOpcao2))
+                        .content(webhookOpcaoAgendar))
                 .andExpect(status().isOk());
 
         when(mercadoPagoPaymentClient.createPixPayment(any(), any(), any(), any(), any()))
@@ -268,7 +269,30 @@ class HomologacaoPilotoE2ETest {
                                 .build())
                         .build());
 
-        // Cliente escolhe Mariana na sexta às 15h
+        // Etapa 1 (Profissional): cliente confirma a artista sugerida no orçamento (Mariana Rocha)
+        String webhookConfirmaArtista = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541988887777@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-ARTISTA-003"
+                    },
+                    "pushName": "Beatriz Cliente",
+                    "message": {
+                      "conversation": "sim"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookConfirmaArtista))
+                .andExpect(status().isOk());
+
+        // Etapa 2 (Data): cliente escolhe uma data futura válida (próxima sexta)
         String webhookEscolheData = """
                 {
                   "event": "messages.upsert",
@@ -277,11 +301,11 @@ class HomologacaoPilotoE2ETest {
                     "key": {
                       "remoteJid": "5541988887777@s.whatsapp.net",
                       "fromMe": false,
-                      "id": "WAMID-DATA-003"
+                      "id": "WAMID-DATA-004"
                     },
                     "pushName": "Beatriz Cliente",
                     "message": {
-                      "conversation": "Quero agendar com a Mariana na sexta às 15h"
+                      "conversation": "próxima sexta"
                     }
                   }
                 }
@@ -291,14 +315,46 @@ class HomologacaoPilotoE2ETest {
                         .content(webhookEscolheData))
                 .andExpect(status().isOk());
 
-        // Verifica agendamento criado com status AGUARDANDO_PAGAMENTO e Mariana atribuída
+        // Etapa 3 (Horário): cliente escolhe um dos horários disponíveis (15h)
+        String webhookEscolheHorario = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541988887777@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-HORA-005"
+                    },
+                    "pushName": "Beatriz Cliente",
+                    "message": {
+                      "conversation": "15h"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookEscolheHorario))
+                .andExpect(status().isOk());
+
+        // Verifica agendamento criado com status AGUARDANDO_PAGAMENTO, duração mínima de 2h e Mariana atribuída
         List<Appointment> appointments = appointmentRepository.findAll();
         assertEquals(1, appointments.size());
         Appointment appt = appointments.get(0);
         assertEquals(AppointmentStatus.AGUARDANDO_PAGAMENTO, appt.getStatus());
-        assertEquals("Mariana Rocha", appt.getArtist().getName());
+        assertNotNull(appt.getArtist());
+        User apptArtist = userRepository.findById(appt.getArtist().getId()).orElseThrow();
+        assertEquals("Mariana Rocha", apptArtist.getName());
+        assertEquals(15, appt.getScheduledStart().getHour());
+        assertEquals(17, appt.getScheduledEnd().getHour());
         assertEquals(0, new BigDecimal("240.00").compareTo(appt.getTotalPrice()));
         assertEquals(0, new BigDecimal("72.00").compareTo(appt.getDepositAmount())); // 30% de 240 = 72.00
+
+        // Verifica que o código PIX foi enviado em mensagem separada para facilitar copiar
+        List<ChatMessage> beatrizMessages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(session.getId());
+        assertTrue(beatrizMessages.stream().anyMatch(m ->
+                "00020126580014br.gov.bcb.pix0136vicio-tattoo-pix-homologacao".equals(m.getContent())));
 
         // =========================================================================
         // CRITÉRIO 1: Isolamento Estrito entre Profissionais (Mariana vs Carlos vs Dono)
@@ -463,7 +519,7 @@ class HomologacaoPilotoE2ETest {
                     },
                     "pushName": "Rafael Fechamento",
                     "message": {
-                      "conversation": "E"
+                      "conversation": "Fechamento"
                     }
                   }
                 }
@@ -478,7 +534,8 @@ class HomologacaoPilotoE2ETest {
         assertEquals(ConversationState.TRANSBORDO_HUMANO, rafaelSession.getCurrentState());
         assertEquals("Carlos Silveira", rafaelSession.getAssignedArtistName());
         assertNotNull(rafaelSession.getAssignedUser());
-        assertEquals("Carlos Silveira", rafaelSession.getAssignedUser().getName());
+        User rafaelArtist = userRepository.findById(rafaelSession.getAssignedUser().getId()).orElseThrow();
+        assertEquals("Carlos Silveira", rafaelArtist.getName());
 
         JsonNode rafaelCtx = objectMapper.readTree(rafaelSession.getContextData());
         assertEquals("FECHAMENTO", rafaelCtx.get("sizeCategory").asText());
@@ -495,12 +552,20 @@ class HomologacaoPilotoE2ETest {
     }
 
     @Test
+    @Transactional
     void shouldExecuteFlywayV6MigrationSqlCleanlyAndPopulateDefaultParameters() throws Exception {
         entityManager.flush();
+        TenantConfig beforeFix = tenantConfigRepository.findAll().stream().findFirst().orElseThrow();
+        beforeFix.setAgendamentoIntroMessage("📅 *Agendamento de Sessão*\\n\\nNossa equipe conta com 11 artistas.");
+        beforeFix.setPixPaymentMessage("🗓️ *Pré-Agendamento Criado!*\\n\\nBloqueamos seu horário.");
+        tenantConfigRepository.saveAndFlush(beforeFix);
+
         org.springframework.jdbc.datasource.init.ResourceDatabasePopulator populator =
                 new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
                         new org.springframework.core.io.ClassPathResource("db/migration/V6__operating_hours_and_pix_expiration.sql"),
-                        new org.springframework.core.io.ClassPathResource("db/migration/V7__structured_tattoo_size_options.sql")
+                        new org.springframework.core.io.ClassPathResource("db/migration/V7__structured_tattoo_size_options.sql"),
+                        new org.springframework.core.io.ClassPathResource("db/migration/V9__fix_literal_newlines_in_tenant_messages.sql"),
+                        new org.springframework.core.io.ClassPathResource("db/migration/V12__simplify_orcamento_intro_message.sql")
                 );
         populator.populate( org.springframework.jdbc.datasource.DataSourceUtils.getConnection(dataSource));
         entityManager.clear();
@@ -513,9 +578,12 @@ class HomologacaoPilotoE2ETest {
         assertNotNull(config.getAbsenceMessage());
         assertTrue(config.getAbsenceMessage().contains("Estúdio Fora do Horário de Expediente"));
         assertFalse(config.getAbsenceMessage().contains("\\n"), "A migração V6 deve gravar quebras de linha reais e não '\\n' literal");
+        assertFalse(config.getAgendamentoIntroMessage().contains("\\n"), "A migração V9 deve converter '\\n' literal em quebra de linha real");
+        assertTrue(config.getAgendamentoIntroMessage().contains("\n\n"));
+        assertFalse(config.getPixPaymentMessage().contains("\\n"), "A migração V9 deve converter '\\n' literal em quebra de linha real");
+        assertTrue(config.getPixPaymentMessage().contains("\n\n"));
         assertNotNull(config.getOrcamentoIntroMessage());
-        assertTrue(config.getOrcamentoIntroMessage().contains("Flash / Mini"));
-        assertTrue(config.getOrcamentoIntroMessage().contains("Fechamento"));
-        assertTrue(config.getOrcamentoIntroMessage().contains("Valor a combinar"));
+        assertFalse(config.getOrcamentoIntroMessage().contains("Digite *A*"), "A migração V12 deve remover a escolha A-E da frente do orçamento");
+        assertTrue(config.getOrcamentoIntroMessage().contains("foto da tatuagem"));
     }
 }

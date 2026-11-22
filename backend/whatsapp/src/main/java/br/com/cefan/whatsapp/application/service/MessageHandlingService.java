@@ -70,4 +70,28 @@ public class MessageHandlingService {
         // Processa a mensagem através da Máquina de Estados da Conversa
         stateMachineService.process(customer, webhook);
     }
+
+    /**
+     * Trata eventos messages.update da Evolution API (votos em enquetes já decifrados pela Evolution 2.3.x).
+     * Nota: não descarta fromMe=true aqui, pois a enquete original foi enviada pelo próprio bot.
+     */
+    @Transactional
+    public void handleMessageUpdate(EvolutionWebhookRequest webhook) {
+        if (webhook == null || !webhook.hasPollUpdates()) {
+            return;
+        }
+
+        String pollMessageId = webhook.extractPollUpdateKeyId();
+        java.util.OptionalInt votedIndexOpt = webhook.extractVotedPollOptionIndex();
+
+        log.info("Update de enquete recebido: pollMessageId=[{}], votedIndex=[{}], remoteJid=[{}]",
+                pollMessageId, votedIndexOpt.isPresent() ? votedIndexOpt.getAsInt() : "vazio", webhook.extractSenderPhone());
+
+        if (pollMessageId == null || pollMessageId.isBlank() || votedIndexOpt.isEmpty()) {
+            log.debug("Voto vazio/desmarcado ou sem keyId na enquete [{}]. Ignorando.", pollMessageId);
+            return;
+        }
+
+        stateMachineService.processPollVote(pollMessageId, votedIndexOpt.getAsInt(), webhook);
+    }
 }

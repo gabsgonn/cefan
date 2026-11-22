@@ -122,6 +122,9 @@ public class EvolutionWebhookRequest {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class WebhookData {
         private Object key;
+        private Object keyId;
+        private Object remoteJid;
+        private Object fromMe;
         private Object pushName;
         private Object message;
         private Object messageType;
@@ -129,6 +132,7 @@ public class EvolutionWebhookRequest {
         private Object base64;
         private Object id;
         private Object messageId;
+        private Object pollUpdates;
 
         public void setKey(Object key) {
             this.key = key;
@@ -634,6 +638,9 @@ public class EvolutionWebhookRequest {
         if (d != null && d.getKey() != null && d.getKey().getRemoteJid() != null) {
             return cleanPhone(d.getKey().getRemoteJid());
         }
+        if (d != null && d.getRemoteJid() != null && !d.getRemoteJid().toString().isBlank()) {
+            return cleanPhone(d.getRemoteJid().toString());
+        }
         if (sender != null) {
             if (sender instanceof String str) {
                 return cleanPhone(str);
@@ -664,6 +671,56 @@ public class EvolutionWebhookRequest {
 
     public boolean isFromMe() {
         WebhookData d = getData();
-        return d != null && d.getKey() != null && Boolean.TRUE.equals(d.getKey().getFromMe());
+        if (d == null) return false;
+        if (d.getKey() != null && Boolean.TRUE.equals(d.getKey().getFromMe())) {
+            return true;
+        }
+        if (d.getFromMe() instanceof Boolean b) {
+            return b;
+        }
+        return d.getFromMe() != null && Boolean.parseBoolean(d.getFromMe().toString());
+    }
+
+    /**
+     * Retorna o ID da mensagem da enquete em eventos messages.update da Evolution API 2.x (data.keyId ou data.key.id).
+     */
+    public String extractPollUpdateKeyId() {
+        WebhookData d = getData();
+        if (d == null) {
+            return null;
+        }
+        if (d.getKeyId() != null && !d.getKeyId().toString().isBlank()) {
+            return d.getKeyId().toString().trim();
+        }
+        if (d.getKey() != null && d.getKey().getId() != null && !d.getKey().getId().isBlank()) {
+            return d.getKey().getId().trim();
+        }
+        return null;
+    }
+
+    public boolean hasPollUpdates() {
+        WebhookData d = getData();
+        return d != null && d.getPollUpdates() instanceof java.util.List<?> list && !list.isEmpty();
+    }
+
+    /**
+     * Extrai o índice (0-based) da opção votada no array pollUpdates já decifrado pela Evolution API 2.3.x
+     * (formato [{name, voters: [...]}, ...]). Retorna vazio quando todos os voters estão vazios (voto desmarcado).
+     */
+    public java.util.OptionalInt extractVotedPollOptionIndex() {
+        WebhookData d = getData();
+        if (d == null || !(d.getPollUpdates() instanceof java.util.List<?> updates) || updates.isEmpty()) {
+            return java.util.OptionalInt.empty();
+        }
+        for (int i = 0; i < updates.size(); i++) {
+            Object item = updates.get(i);
+            if (item instanceof Map<?, ?> map) {
+                Object votersObj = map.get("voters");
+                if (votersObj instanceof java.util.List<?> voters && !voters.isEmpty()) {
+                    return java.util.OptionalInt.of(i);
+                }
+            }
+        }
+        return java.util.OptionalInt.empty();
     }
 }

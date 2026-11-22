@@ -2,7 +2,10 @@ package br.com.cefan.whatsapp.application.statemachine.handler;
 
 import br.com.cefan.whatsapp.api.controller.StudioAdminController;
 import br.com.cefan.whatsapp.application.service.ChatService;
+import br.com.cefan.whatsapp.application.service.WhatsAppPollService;
 import br.com.cefan.whatsapp.application.statemachine.ConversationStateHandler;
+import br.com.cefan.whatsapp.application.statemachine.UserIntent;
+import br.com.cefan.whatsapp.application.statemachine.UserIntentNormalizer;
 import br.com.cefan.whatsapp.domain.model.ConversationSession;
 import br.com.cefan.whatsapp.domain.model.ConversationState;
 import br.com.cefan.whatsapp.domain.model.Customer;
@@ -42,6 +45,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
     private final ChatService chatService;
     private final StudioAdminController studioAdminController;
     private final UserRepository userRepository;
+    private final WhatsAppPollService pollService;
 
     public OrcamentoStateHandler(
             EvolutionApiClient evolutionApiClient,
@@ -49,7 +53,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             TenantConfigRepository tenantConfigRepository,
             ObjectMapper objectMapper,
             ChatService chatService) {
-        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, null, null);
+        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, null, null, null);
     }
 
     public OrcamentoStateHandler(
@@ -59,7 +63,18 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             ObjectMapper objectMapper,
             ChatService chatService,
             StudioAdminController studioAdminController) {
-        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, studioAdminController, null);
+        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, studioAdminController, null, null);
+    }
+
+    public OrcamentoStateHandler(
+            EvolutionApiClient evolutionApiClient,
+            GeminiVisionClient geminiVisionClient,
+            TenantConfigRepository tenantConfigRepository,
+            ObjectMapper objectMapper,
+            ChatService chatService,
+            StudioAdminController studioAdminController,
+            UserRepository userRepository) {
+        this(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService, studioAdminController, userRepository, null);
     }
 
     @Autowired
@@ -70,7 +85,8 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             ObjectMapper objectMapper,
             ChatService chatService,
             StudioAdminController studioAdminController,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            WhatsAppPollService pollService) {
         this.evolutionApiClient = evolutionApiClient;
         this.geminiVisionClient = geminiVisionClient;
         this.tenantConfigRepository = tenantConfigRepository;
@@ -78,7 +94,10 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         this.chatService = chatService;
         this.studioAdminController = studioAdminController;
         this.userRepository = userRepository;
+        this.pollService = pollService;
     }
+
+    private static final UserIntentNormalizer FALLBACK_NORMALIZER = new UserIntentNormalizer();
 
     @Override
     public ConversationState getSupportedState() {
@@ -87,6 +106,15 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
     @Override
     public void handle(Customer customer, ConversationSession session, EvolutionWebhookRequest webhook, String messageText) {
+        boolean hasQuote = hasExistingImageAnalysis(session.getContextData());
+        UserIntent intent = webhook.hasImage()
+                ? UserIntent.DESCONHECIDA
+                : FALLBACK_NORMALIZER.normalize(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, hasQuote, messageText);
+        handle(customer, session, webhook, messageText, intent);
+    }
+
+    @Override
+    public void handle(Customer customer, ConversationSession session, EvolutionWebhookRequest webhook, String messageText, UserIntent intent) {
         boolean hasImage = webhook.hasImage();
         TenantConfig tenantConfig = tenantConfigRepository.findAll().stream()
                 .findFirst()
@@ -124,9 +152,10 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             TattooAnalysisResult rawAnalysis = geminiVisionClient.analyzeTattoo(base64Image, mimeType, combinedNotes);
             final TattooAnalysisResult analysis = (rawAnalysis != null) ? rawAnalysis : createLocalFallbackAnalysis(combinedNotes);
 
-            Optional<TattooSizeOption> userChosenSize = TattooSizeOption.fromInput(messageText)
+            // A IA estima o tamanho pela foto; só sobrescreve se o cliente informou medida/categoria explícita
+            Optional<TattooSizeOption> userChosenSize = TattooSizeOption.fromExplicitAdjustment(messageText)
                     .or(() -> TattooSizeOption.fromCategoryKey(preSelectedSize))
-                    .or(() -> TattooSizeOption.fromInput(pendingNotes));
+                    .or(() -> TattooSizeOption.fromExplicitAdjustment(pendingNotes));
 
             TattooSizeOption resolvedSize = userChosenSize
                     .or(() -> TattooSizeOption.fromCategoryKey(analysis.getSizeCategory()))
@@ -153,114 +182,178 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             }
 
             sendStandardQuoteReply(customer, session, webhook, analysis, resolvedSize, referenceImageUrl, tenantConfig);
-        } else {
-            // Cliente enviou apenas texto sem imagem
-            String input = (messageText != null) ? messageText.trim().toLowerCase() : "";
+            return;
+        }
 
-            // 1. Verifica se o cliente escolheu uma opção de tamanho (Flash, Pequena, Média, Grande ou Fechamento)
-            Optional<TattooSizeOption> chosenSize = TattooSizeOption.fromInput(messageText);
+        // Cliente enviou apenas texto sem imagem -> usa intenção normalizada (texto ou sendPoll)
+        boolean hasQuote = hasExistingImageAnalysis(session.getContextData());
+        UserIntent resolvedIntent = (intent != null)
+                ? intent
+                : FALLBACK_NORMALIZER.normalize(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, hasQuote, messageText);
 
-            if (chosenSize.isPresent() && chosenSize.get() == TattooSizeOption.FECHAMENTO) {
+        switch (resolvedIntent) {
+            case AGENDAR -> {
+                handleStartScheduling(customer, session, webhook, messageText, tenantConfig);
+                return;
+            }
+            case FALAR_TATUADOR -> {
+                handleHumanTransfer(customer, session, webhook, messageText, tenantConfig);
+                return;
+            }
+            case VOLTAR -> {
+                session.setCurrentState(ConversationState.MENU);
+                session.setContextData(null);
+                String reply = String.format(
+                        "Voltando ao menu inicial, %s! 🔄\n\n" +
+                        "1️⃣ - *Fazer Orçamento* (com foto de referência)\n" +
+                        "2️⃣ - *Agendar Sessão*\n" +
+                        "3️⃣ - *Falar com o Tatuador*\n" +
+                        "4️⃣ - *Nossos Artistas e Portfólio*\n\n" +
+                        "👉 _Digite o número da opção desejada._",
+                        customer.getName());
+                evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+                chatService.recordBotMessage(session, customer, reply);
+                return;
+            }
+            default -> {
+                // Segue para ajuste de estimativa, texto pré-foto ou tratamento de entrada inválida
+            }
+        }
+
+        // Ajuste simples de estimativa por medida em cm (ex: "10cm") ou nome natural ("pequena", "grande", "fechamento")
+        Optional<TattooSizeOption> sizeAdjustment = TattooSizeOption.fromExplicitAdjustment(messageText);
+        if (sizeAdjustment.isPresent()) {
+            TattooSizeOption sizeOption = sizeAdjustment.get();
+            if (sizeOption == TattooSizeOption.FECHAMENTO) {
                 TattooAnalysisResult existingOrFallback = reconstructAnalysisFromContext(session.getContextData(), messageText);
                 String existingRefImage = extractStringFromContext(session.getContextData(), "referenceImageUrl");
                 handleFechamentoQuote(customer, session, webhook, existingOrFallback, existingRefImage, tenantConfig, messageText);
                 return;
             }
-
-            // 2. Transbordo Humano (Opção 3)
-            if (input.equals("3") || input.contains("tatuador") || input.contains("humano") || input.contains("falar")) {
-                session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
-                assignRecommendedArtistIfPresent(session, messageText);
-
-                String customTemplate = (tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
-                        ? tenantConfig.getHumanTransferMessage()
-                        : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.";
-                String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
-                String reply = String.format(
-                        "Entendido, %s! 👨‍🎨\n\n" +
-                        "%s%s\n\n" +
-                        "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
-                        customer.getName(),
-                        customTemplate,
-                        absenceNotice
-                );
-                evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
-                chatService.recordBotMessage(session, customer, reply);
-                if (studioAdminController != null) {
-                    studioAdminController.publishNotification(
-                            "HUMAN_REQUEST",
-                            "Aguardando Tatuador",
-                            customer.getName() + " solicitou atendimento humano no WhatsApp.",
-                            customer.getPhone()
-                    );
-                }
+            if (hasQuote) {
+                TattooAnalysisResult analysis = reconstructAnalysisFromContext(session.getContextData(), messageText);
+                analysis.setSizeCategory(sizeOption.getCategoryKey());
+                analysis.setEstimatedSizeCm(sizeOption.getFormattedLabel());
+                analysis.setEstimatedHours(sizeOption.getDefaultHours());
+                String existingRefImage = extractStringFromContext(session.getContextData(), "referenceImageUrl");
+                sendStandardQuoteReply(customer, session, webhook, analysis, sizeOption, existingRefImage, tenantConfig);
                 return;
             }
+        }
 
-            // 3. Iniciar Agendamento (Opção 2)
-            if (input.equals("2") || input.contains("agendar") || input.contains("agendamento")) {
-                session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
-                String customTemplate = (tenantConfig != null && tenantConfig.getAgendamentoIntroMessage() != null && !tenantConfig.getAgendamentoIntroMessage().isBlank())
-                        ? tenantConfig.getAgendamentoIntroMessage()
-                        : "Vamos iniciar seu agendamento com base no seu orçamento.\n\n" +
-                          "Nossa equipe conta com 11 artistas especialistas. Por favor, me informe:\n" +
-                          "1. O tatuador de sua preferência (ou digite *qualquer* se preferir o especialista indicado)\n" +
-                          "2. A data ou dia da semana desejado (Ex: sexta-feira à tarde, ou dia 20/11)";
-                String reply = String.format(
-                        "Ótimo, %s! 🗓️ %s\n\n" +
-                        "💡 _Digite 0 a qualquer momento para voltar ao menu inicial._",
-                        customer.getName(),
-                        customTemplate
-                );
-                evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
-                chatService.recordBotMessage(session, customer, reply);
-                return;
-            }
+        // Pós-orçamento com entrada inválida -> resposta amigável + reenvio das 3 ações, sem mudar de estado
+        if (hasQuote) {
+            String reply = "Não entendi sua resposta. 😅\n\n" +
+                    "Escolha uma das opções abaixo para continuar com seu orçamento:\n\n" +
+                    buildPostQuoteActionsBlock() + "\n\n" +
+                    "💡 _Para ajustar a estimativa, informe o tamanho em cm (ex: 10cm), \"fechamento\" ou envie outra foto._";
+            evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+            chatService.recordBotMessage(session, customer, reply);
+            return;
+        }
 
-            // 4. Se o cliente escolheu um tamanho (Flash, Pequena, Média, Grande)
-            if (chosenSize.isPresent()) {
-                TattooSizeOption sizeOption = chosenSize.get();
-                if (hasExistingImageAnalysis(session.getContextData())) {
-                    // Já enviou a foto anteriormente -> recalcula o orçamento imediatamente para o novo tamanho escolhido
-                    TattooAnalysisResult analysis = reconstructAnalysisFromContext(session.getContextData(), messageText);
-                    analysis.setSizeCategory(sizeOption.getCategoryKey());
-                    analysis.setEstimatedSizeCm(sizeOption.getFormattedLabel());
-                    analysis.setEstimatedHours(sizeOption.getDefaultHours());
-                    String existingRefImage = extractStringFromContext(session.getContextData(), "referenceImageUrl");
-                    sendStandardQuoteReply(customer, session, webhook, analysis, sizeOption, existingRefImage, tenantConfig);
-                    return;
-                } else {
-                    // Ainda não enviou a foto -> salva o tamanho escolhido na sessão e pede a foto de referência
-                    savePendingPreferences(session, sizeOption.getCategoryKey(), messageText);
-                    String reply = String.format(
-                            "✅ Opção de tamanho *%s* selecionada! 📝\n\n" +
-                            "📸 Agora, para calcularmos a estimativa de preço precisa com nossa IA, por favor envie uma *foto de referência* da tatuagem que você deseja fazer.\n\n" +
-                            "💡 _Se quiser trocar o tamanho, basta digitar outra opção (A: Flash, B: Pequena, C: Média, D: Grande, E: Fechamento)._\n" +
-                            "👉 Ou digite *3* para falar diretamente com nosso tatuador.\n" +
-                            "👉 Ou digite *0* para voltar ao menu inicial.",
-                            sizeOption.getFormattedLabel()
-                    );
-                    evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
-                    chatService.recordBotMessage(session, customer, reply);
-                    return;
-                }
-            }
+        // Pré-foto: descrição livre -> salva notas (e eventual tamanho citado) e pede a foto de referência sem bloco A-E
+        log.info("Descrição em texto recebida no estado de orçamento do cliente [{}]", customer.getPhone());
+        savePendingPreferences(session, sizeAdjustment.map(TattooSizeOption::getCategoryKey).orElse(null), messageText);
+        String reply = String.format(
+                "Recebemos sua descrição: \"%s\" 📝\n\n" +
+                "📸 Para calcularmos a estimativa com nossa IA, envie uma *foto de referência* da tatuagem que você deseja fazer.\n\n" +
+                "👉 Ou digite *falar com tatuador* para atendimento humano.\n" +
+                "👉 Ou digite *0* para voltar ao menu inicial.",
+                (messageText != null ? messageText : "")
+        );
+        evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+        chatService.recordBotMessage(session, customer, reply);
+    }
 
-            // 5. Descrição livre sem tamanho reconhecido e sem foto
-            log.info("Descrição em texto recebida no estado de orçamento do cliente [{}]", customer.getPhone());
-            savePendingPreferences(session, null, messageText);
+    private void handleHumanTransfer(
+            Customer customer,
+            ConversationSession session,
+            EvolutionWebhookRequest webhook,
+            String messageText,
+            TenantConfig tenantConfig) {
+        session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+        assignRecommendedArtistIfPresent(session, messageText);
+
+        String customTemplate = (tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
+                ? tenantConfig.getHumanTransferMessage()
+                : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.";
+        String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
+        String reply = String.format(
+                "Entendido, %s! 👨‍🎨\n\n" +
+                "%s%s\n\n" +
+                "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                customer.getName(),
+                customTemplate,
+                absenceNotice
+        );
+        evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+        chatService.recordBotMessage(session, customer, reply);
+        if (studioAdminController != null) {
+            studioAdminController.publishNotification(
+                    "HUMAN_REQUEST",
+                    "Aguardando Tatuador",
+                    customer.getName() + " solicitou atendimento humano no WhatsApp.",
+                    customer.getPhone()
+            );
+        }
+    }
+
+    private void handleStartScheduling(
+            Customer customer,
+            ConversationSession session,
+            EvolutionWebhookRequest webhook,
+            String messageText,
+            TenantConfig tenantConfig) {
+        int durationHours = AgendamentoStateHandler.resolveDurationHours(session.getContextData(), objectMapper);
+        if (!AgendamentoStateHandler.doesSessionFitInOperatingHours(durationHours, tenantConfig)) {
+            session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
+            assignRecommendedArtistIfPresent(session, messageText);
+            String artistName = (session.getAssignedArtistName() != null && !session.getAssignedArtistName().isBlank())
+                    ? session.getAssignedArtistName()
+                    : "nossa equipe especialista";
+            String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
             String reply = String.format(
-                    "Recebemos sua descrição: \"%s\" 📝\n\n" +
-                    "📸 Para calcularmos a estimativa de preço precisa com nossa IA, por favor envie uma *foto de referência* da tatuagem que você deseja fazer e escolha uma opção de tamanho:\n\n" +
-                    "%s\n\n" +
-                    "👉 Ou digite *3* para falar diretamente com nosso tatuador.\n" +
-                    "👉 Ou digite *0* para voltar ao menu inicial.",
-                    (messageText != null ? messageText : ""),
-                    TattooSizeOption.buildSizeMenuBlock()
+                    "🎨 *Sessão Especial (%dh) — Atendimento Personalizado* 🎨\n\n" +
+                    "Olá, %s! Como o tempo estimado da sua sessão (*%dh*) ultrapassa nosso expediente diário (*%s às %s*), encaminhei sua conversa diretamente para *%s* organizar a melhor divisão de sessões e horários com você!%s\n\n" +
+                    "💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
+                    durationHours,
+                    customer.getName(),
+                    durationHours,
+                    AgendamentoStateHandler.resolveOpeningTime(tenantConfig),
+                    AgendamentoStateHandler.resolveClosingTime(tenantConfig),
+                    artistName,
+                    absenceNotice
             );
             evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
             chatService.recordBotMessage(session, customer, reply);
+            if (studioAdminController != null) {
+                studioAdminController.publishNotification(
+                        "HUMAN_REQUEST",
+                        "Sessão Longa (" + durationHours + "h)",
+                        customer.getName() + " possui sessão estimada em " + durationHours + "h (maior que o expediente). Encaminhado para " + artistName + ".",
+                        customer.getPhone()
+                );
+            }
+            return;
         }
+
+        session.setCurrentState(ConversationState.AGENDAMENTO_SELECAO_DATA);
+        List<User> activeArtists = (userRepository != null)
+                ? userRepository.findAll().stream()
+                        .filter(u -> u.getRole() == UserRole.ARTIST && Boolean.TRUE.equals(u.getIsActive()))
+                        .toList()
+                : List.of();
+        String reply = AgendamentoStateHandler.buildSchedulingEntryPrompt(
+                customer, session, tenantConfig, activeArtists, objectMapper, true);
+        evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
+        chatService.recordBotMessage(session, customer, reply);
+    }
+
+    public static String buildPostQuoteActionsBlock() {
+        return "1️⃣ *Agendar sessão*\n" +
+               "2️⃣ *Falar com o tatuador*\n" +
+               "3️⃣ *Voltar ao menu*";
     }
 
     private void sendStandardQuoteReply(
@@ -316,11 +409,10 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                 "📝 *Detalhes da Arte:*\n%s\n\n" +
                 "💰 *Faixa de Preço Estimada:*\n*R$ %s a R$ %s*\n" +
                 "_(Inclui materiais 100%% descartáveis, esterilizados e biossegurança)_\n\n" +
-                "%s\n\n" +
+                "💡 _Quer ajustar a estimativa? Informe a medida em cm (ex: 10cm) ou \"fechamento\"._\n\n" +
                 "━━━━━━━━━━━━━━━━━━━━\n" +
-                "👉 Digite *2* para *Agendar sua Sessão*\n" +
-                "👉 Digite *3* para *Falar com o Tatuador*\n" +
-                "👉 Digite *0* para voltar ao menu inicial",
+                "%s\n\n" +
+                "👉 _Digite o número da opção desejada._",
                 customer.getName(),
                 analysis.getStyle() != null ? analysis.getStyle() : "Arte Personalizada",
                 sizeInfo,
@@ -331,11 +423,25 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                 analysis.getTechnicalNotes() != null ? analysis.getTechnicalNotes() : "Arte avaliada conforme parâmetros do estúdio.",
                 minPrice,
                 maxPrice,
-                TattooSizeOption.buildSizeMenuBlock()
+                buildPostQuoteActionsBlock()
         );
 
         evolutionApiClient.sendTextMessage(webhook.getInstance(), customer.getPhone(), reply);
         chatService.recordBotMessage(session, customer, reply);
+        if (pollService != null) {
+            pollService.sendAndTrackPoll(
+                    webhook.getInstance(),
+                    customer,
+                    session,
+                    ConversationState.ORCAMENTO_AGUARDANDO_FOTO,
+                    "O que você gostaria de fazer agora? (ou digite 1, 2 ou 3)",
+                    List.of(
+                            new WhatsAppPollService.PollOption(0, "Agendar sessão", UserIntent.AGENDAR),
+                            new WhatsAppPollService.PollOption(1, "Falar com o tatuador", UserIntent.FALAR_TATUADOR),
+                            new WhatsAppPollService.PollOption(2, "Voltar ao menu", UserIntent.VOLTAR)
+                    )
+            );
+        }
     }
 
     private void handleFechamentoQuote(

@@ -1,13 +1,16 @@
 package br.com.cefan.whatsapp.infrastructure.evolution;
 
+import br.com.cefan.whatsapp.infrastructure.evolution.dto.SendPollMessageRequest;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.SendTextMessageRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -18,13 +21,24 @@ public class EvolutionApiClient {
     private final RestClient restClient;
     private final String apiKey;
     private final String defaultInstance;
+    private final boolean pollsEnabled;
 
+    public EvolutionApiClient(
+            String apiUrl,
+            String apiKey,
+            String defaultInstance) {
+        this(apiUrl, apiKey, defaultInstance, true);
+    }
+
+    @Autowired
     public EvolutionApiClient(
             @Value("${evolution.api.url:http://localhost:8081}") String apiUrl,
             @Value("${evolution.api.key}") String apiKey,
-            @Value("${evolution.api.instance-name:cefan-studio}") String defaultInstance) {
+            @Value("${evolution.api.instance-name:cefan-studio}") String defaultInstance,
+            @Value("${evolution.api.polls.enabled:true}") boolean pollsEnabled) {
         this.apiKey = apiKey;
         this.defaultInstance = defaultInstance;
+        this.pollsEnabled = pollsEnabled;
         this.restClient = RestClient.builder()
                 .baseUrl(apiUrl)
                 .defaultHeader("apikey", apiKey)
@@ -54,6 +68,59 @@ public class EvolutionApiClient {
 
     public void sendTextMessage(String recipientNumber, String text) {
         sendTextMessage(defaultInstance, recipientNumber, text);
+    }
+
+    /**
+     * Envia uma enquete nativa do WhatsApp via Evolution API (/message/sendPoll/{instance})
+     * e retorna o key.id da enquete criada para rastreamento de votos.
+     */
+    public Optional<String> sendPollMessage(
+            String instance,
+            String recipientNumber,
+            String name,
+            List<String> values,
+            int selectableCount) {
+        if (!pollsEnabled || values == null || values.isEmpty()) {
+            return Optional.empty();
+        }
+        String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
+        log.info("Enviando enquete via Evolution API para [{}] na instância [{}]: {} ({} opções)",
+                recipientNumber, targetInstance, name, values.size());
+        try {
+            SendPollMessageRequest request = SendPollMessageRequest.builder()
+                    .number(recipientNumber)
+                    .name(name)
+                    .selectableCount(Math.max(1, selectableCount))
+                    .values(values)
+                    .build();
+
+            JsonNode response = restClient.post()
+                    .uri("/message/sendPoll/{instance}", targetInstance)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(request)
+                    .retrieve()
+                    .body(JsonNode.class);
+
+            if (response != null) {
+                if (response.has("key") && response.get("key").hasNonNull("id")) {
+                    String id = response.get("key").get("id").asText();
+                    if (!id.isBlank()) {
+                        return Optional.of(id);
+                    }
+                }
+                if (response.hasNonNull("id")) {
+                    String id = response.get("id").asText();
+                    if (!id.isBlank()) {
+                        return Optional.of(id);
+                    }
+                }
+            }
+            log.warn("Evolution API enviou enquete para [{}], mas resposta não retornou key.id: {}", recipientNumber, response);
+        } catch (Exception e) {
+            log.warn("Falha ao enviar enquete via Evolution API para [{}] (fallback de texto permanece ativo): {}",
+                    recipientNumber, e.getMessage());
+        }
+        return Optional.empty();
     }
 
     public Optional<String> getBase64FromMediaMessage(String instance, String messageId) {

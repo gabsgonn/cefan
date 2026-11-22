@@ -23,6 +23,8 @@ public class EvolutionWebhookController {
 
             if ("messages.upsert".equalsIgnoreCase(request.getEvent()) || "MESSAGES_UPSERT".equalsIgnoreCase(request.getEvent())) {
                 messageHandlingService.handleIncomingMessage(request);
+            } else if ("messages.update".equalsIgnoreCase(request.getEvent()) || "MESSAGES_UPDATE".equalsIgnoreCase(request.getEvent())) {
+                messageHandlingService.handleMessageUpdate(request);
             }
         }
 

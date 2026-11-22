@@ -139,7 +139,8 @@ class ConversationStateMachineServiceTest {
         stateMachineService.process(customer, webhook);
 
         assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
-        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("foto da tatuagem"));
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), argThat(msg ->
+                msg.contains("foto da tatuagem") && !msg.contains("Digite *A*")));
     }
 
     @Test
@@ -308,5 +309,104 @@ class ConversationStateMachineServiceTest {
 
         assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Orçamento Estimado"));
+    }
+
+    @Test
+    void shouldNormalizePollLabelsAndPostQuoteThreeActionsBeforeHandlers() {
+        ConversationSession session = ConversationSession.builder()
+                .customer(customer)
+                .currentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO)
+                .contextData("{\"style\":\"Fineline\",\"estimatedHours\":2.0}")
+                .lastInteractionAt(OffsetDateTime.now())
+                .build();
+
+        when(sessionRepository.findByCustomer(customer)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(ConversationSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 1. Entrada inválida no pós-orçamento mantém estado e reenvia as 3 ações
+        stateMachineService.process(customer, createWebhook("quero 2 tatuagens", false));
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), argThat(msg ->
+                msg.contains("Não entendi sua resposta")
+                        && msg.contains("Agendar sessão")
+                        && msg.contains("Falar com o tatuador")
+                        && msg.contains("Voltar ao menu")));
+
+        // 2. Opção 3 (ou rótulo de enquete "Voltar ao menu") volta para MENU e limpa contextData
+        stateMachineService.process(customer, createWebhook("3", false));
+        assertEquals(ConversationState.MENU, session.getCurrentState());
+        org.junit.jupiter.api.Assertions.assertNull(session.getContextData());
+
+        // 3. Rótulo de enquete no MENU ("Fazer orçamento") entra no orçamento sem bloco A-E
+        stateMachineService.process(customer, createWebhook("Fazer orçamento", false));
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+    }
+
+    @Test
+    void shouldSelectThirdTimeSlotOn3DuringSchedulingWithQuoteContextAndNotTriggerVoltar() {
+        UUID marianaId = UUID.randomUUID();
+        br.com.cefan.whatsapp.domain.model.User mariana = br.com.cefan.whatsapp.domain.model.User.builder()
+                .id(marianaId)
+                .name("Mariana Rocha")
+                .role(br.com.cefan.whatsapp.domain.model.UserRole.ARTIST)
+                .isActive(true)
+                .build();
+
+        // Sessão já está em STEP_HORARIO com orçamento ("style") presente no contextData
+        java.time.LocalDate futureDate = java.time.LocalDate.now(AgendamentoStateHandler.STUDIO_ZONE).plusDays(2);
+        if (futureDate.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+            futureDate = futureDate.plusDays(1);
+        }
+        String ctx = String.format(
+                "{\"style\":\"Fineline\",\"basePrice\":\"400.00\",\"estimatedHours\":2.0," +
+                "\"schedulingStep\":\"HORARIO\",\"schedulingSelectedArtistId\":\"%s\"," +
+                "\"schedulingSelectedArtistName\":\"Mariana Rocha\",\"schedulingSelectedDate\":\"%s\"," +
+                "\"schedulingAvailableSlots\":[\"10:00\",\"11:00\",\"12:00\",\"14:00\"],\"schedulingDurationHours\":2}",
+                marianaId, futureDate);
+
+        ConversationSession session = ConversationSession.builder()
+                .customer(customer)
+                .currentState(ConversationState.AGENDAMENTO_SELECAO_DATA)
+                .contextData(ctx)
+                .lastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
+                .build();
+
+        TenantConfig config = TenantConfig.builder()
+                .studioName("Vício Tattoo")
+                .openingTime("10:00")
+                .closingTime("20:00")
+                .workingDays("SEG-SAB")
+                .signalPercentage(new BigDecimal("30.00"))
+                .minDepositAmount(new BigDecimal("50.00"))
+                .pixExpirationMinutes(120)
+                .build();
+
+        when(sessionRepository.findByCustomer(customer)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(ConversationSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(tenantConfigRepository.findAll()).thenReturn(List.of(config));
+        when(userRepository.findAll()).thenReturn(List.of(mariana));
+        when(userRepository.findByIdForUpdate(marianaId)).thenReturn(Optional.of(mariana));
+        when(appointmentRepository.findByArtistIdAndScheduledStartBetween(eq(marianaId), any(), any())).thenReturn(List.of());
+        when(appointmentRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentClient.createPixPayment(any(), any(), any(), any(), any()))
+                .thenReturn(br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse.builder()
+                        .id(555111L)
+                        .status("pending")
+                        .pointOfInteraction(br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse.PointOfInteraction.builder()
+                                .transactionData(br.com.cefan.whatsapp.infrastructure.mercadopago.dto.MercadoPagoPaymentResponse.TransactionData.builder()
+                                        .qrCode("000201SLOT3OK")
+                                        .build())
+                                .build())
+                        .build());
+
+        stateMachineService.process(customer, createWebhook("3", false));
+
+        // Deve ter reservado a opção 3 (12:00) e enviado o PIX — NÃO voltado ao menu!
+        org.mockito.ArgumentCaptor<br.com.cefan.whatsapp.domain.model.Appointment> apptCaptor =
+                org.mockito.ArgumentCaptor.forClass(br.com.cefan.whatsapp.domain.model.Appointment.class);
+        verify(appointmentRepository, atLeastOnce()).saveAndFlush(apptCaptor.capture());
+        assertEquals(12, apptCaptor.getValue().getScheduledStart().getHour());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), eq("000201SLOT3OK"));
+        verify(evolutionApiClient, never()).sendTextMessage(anyString(), anyString(), contains("Bem-vindo ao *Vício Tattoo*"));
     }
 }
