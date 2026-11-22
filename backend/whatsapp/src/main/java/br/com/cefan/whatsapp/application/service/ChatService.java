@@ -67,6 +67,11 @@ public class ChatService {
 
     @Transactional
     public ChatMessageDto recordBotMessage(ConversationSession session, Customer customer, String content) {
+        return recordBotMessage(session, customer, content, null);
+    }
+
+    @Transactional
+    public ChatMessageDto recordBotMessage(ConversationSession session, Customer customer, String content, String mediaType) {
         if (content == null || content.isBlank()) {
             return null;
         }
@@ -77,6 +82,7 @@ public class ChatService {
                 .senderType(ChatMessage.SenderType.BOT)
                 .senderName("IA Vício Tattoo")
                 .content(content)
+                .mediaType(mediaType)
                 .isFromMe(true)
                 .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                 .build();
@@ -85,6 +91,23 @@ public class ChatService {
         ChatMessageDto dto = ChatMessageDto.fromEntity(saved);
         broadcast(session, dto);
         return dto;
+    }
+
+    @Transactional
+    public ChatMessageDto recordBotPollMessage(ConversationSession session, Customer customer, String question, List<String> options) {
+        if (question == null || question.isBlank()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(question.trim());
+        if (options != null && !options.isEmpty()) {
+            for (String opt : options) {
+                if (opt != null && !opt.isBlank()) {
+                    sb.append("\n• ").append(opt.trim());
+                }
+            }
+        }
+        return recordBotMessage(session, customer, sb.toString(), "POLL");
     }
 
     @Transactional

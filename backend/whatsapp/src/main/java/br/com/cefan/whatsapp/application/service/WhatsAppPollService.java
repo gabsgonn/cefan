@@ -29,15 +29,25 @@ public class WhatsAppPollService {
     private final EvolutionApiClient evolutionApiClient;
     private final WhatsAppPollRepository pollRepository;
     private final ObjectMapper objectMapper;
+    private final ChatService chatService;
+
+    public WhatsAppPollService(
+            EvolutionApiClient evolutionApiClient,
+            WhatsAppPollRepository pollRepository,
+            ObjectMapper objectMapper) {
+        this(evolutionApiClient, pollRepository, objectMapper, null);
+    }
 
     @Autowired
     public WhatsAppPollService(
             EvolutionApiClient evolutionApiClient,
             WhatsAppPollRepository pollRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ChatService chatService) {
         this.evolutionApiClient = evolutionApiClient;
         this.pollRepository = pollRepository;
         this.objectMapper = (objectMapper != null) ? objectMapper : new ObjectMapper();
+        this.chatService = chatService;
     }
 
     @Transactional
@@ -80,6 +90,9 @@ public class WhatsAppPollService {
                     .active(true)
                     .createdAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
                     .build());
+            if (chatService != null) {
+                chatService.recordBotPollMessage(session, customer, title, values);
+            }
             return Optional.of(saved);
         } catch (Exception e) {
             log.error("Erro ao persistir enquete [{}] após envio para cliente [{}]: {}",

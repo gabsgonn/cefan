@@ -89,7 +89,28 @@ public class ConversationStateMachineService {
                             .build());
                 });
 
-        // 1. Registra mensagem recebida do cliente no histórico de chat
+        // 1. Verificação de expiração por inatividade (24 horas)
+        if (session.getLastInteractionAt() != null &&
+                session.getLastInteractionAt().isBefore(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).minusHours(24))) {
+            log.info("Sessão inativa há mais de 24h para cliente [{}]. Resetando para MENU.", customer.getPhone());
+            session.setCurrentState(ConversationState.MENU);
+            session.setContextData(null);
+        }
+
+        // 2. Se o cliente enviou uma imagem diretamente no MENU, encaminha direto para o orçamento com IA
+        if (session.getCurrentState() == ConversationState.MENU && hasImage) {
+            log.info("Imagem recebida diretamente no estado MENU do cliente [{}]. Encaminhando para ORCAMENTO_AGUARDANDO_FOTO.", customer.getPhone());
+            session.setContextData(null);
+            session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
+        }
+
+        // 3. Normaliza a entrada em intenção canônica antes de registrar/despachar
+        boolean hasQuoteContext = hasExistingQuote(session.getContextData());
+        UserIntent intent = hasImage
+                ? UserIntent.DESCONHECIDA
+                : intentNormalizer.normalize(session.getCurrentState(), hasQuoteContext, messageText);
+
+        // 4. Registra mensagem recebida do cliente no histórico de chat
         String mediaUrl = null;
         String mimeType = webhook.extractImageMimeType();
         if (hasImage) {
@@ -102,39 +123,23 @@ public class ConversationStateMachineService {
                 mediaUrl = "[Mídia/Imagem]";
             }
         }
+        String selectionLabel = (!hasImage) ? resolveSelectionLabel(intent) : null;
+        String recordedContent = (selectionLabel != null)
+                ? "Selecionou: " + selectionLabel
+                : (messageText != null ? messageText : "[Imagem recebida]");
+        String recordedMediaType = (selectionLabel != null) ? "POLL_VOTE" : mimeType;
         chatService.recordIncomingMessage(
                 session,
                 customer,
-                messageText != null ? messageText : "[Imagem recebida]",
+                recordedContent,
                 mediaUrl,
-                mimeType
+                recordedMediaType
         );
 
-        // 2. Verificação de expiração por inatividade (24 horas)
-        if (session.getLastInteractionAt() != null &&
-                session.getLastInteractionAt().isBefore(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).minusHours(24))) {
-            log.info("Sessão inativa há mais de 24h para cliente [{}]. Resetando para MENU.", customer.getPhone());
-            session.setCurrentState(ConversationState.MENU);
-            session.setContextData(null);
-        }
-
-        // 3. Se o cliente enviou uma imagem diretamente no MENU, encaminha direto para o orçamento com IA
-        if (session.getCurrentState() == ConversationState.MENU && hasImage) {
-            log.info("Imagem recebida diretamente no estado MENU do cliente [{}]. Encaminhando para ORCAMENTO_AGUARDANDO_FOTO.", customer.getPhone());
-            session.setContextData(null);
-            session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
-        }
-
-        // 4. Desativa enquetes ativas anteriores quando o cliente opta por responder via texto/imagem (fallback paralelo)
+        // 5. Desativa enquetes ativas anteriores quando o cliente opta por responder via texto/imagem (fallback paralelo)
         if (pollService != null) {
             pollService.deactivateActivePolls(customer);
         }
-
-        // 5. Normaliza a entrada em intenção canônica antes de chegar aos handlers
-        boolean hasQuoteContext = hasExistingQuote(session.getContextData());
-        UserIntent intent = hasImage
-                ? UserIntent.DESCONHECIDA
-                : intentNormalizer.normalize(session.getCurrentState(), hasQuoteContext, messageText);
 
         dispatchIntent(customer, session, webhook, messageText, intent);
     }
@@ -162,9 +167,23 @@ public class ConversationStateMachineService {
             log.info("Voto na enquete [{}] do cliente [{}]: índice={} -> intenção={} ('{}')",
                     pollMessageId, customer.getPhone(), resolved.index(), intent, label);
 
-            chatService.recordIncomingMessage(session, customer, "[Voto na enquete: " + label + "]", null, null);
+            chatService.recordIncomingMessage(session, customer, "Selecionou: " + label, null, "POLL_VOTE");
             dispatchIntent(customer, session, webhook, label, intent);
         });
+    }
+
+    private String resolveSelectionLabel(UserIntent intent) {
+        if (intent == null) {
+            return null;
+        }
+        return switch (intent) {
+            case ORCAMENTO -> "Fazer orçamento";
+            case AGENDAR -> "Agendar sessão";
+            case FALAR_TATUADOR -> "Falar com o tatuador";
+            case VER_ARTISTAS -> "Nossos artistas e portfólio";
+            case VOLTAR -> "Voltar ao menu";
+            default -> null;
+        };
     }
 
     private void dispatchIntent(

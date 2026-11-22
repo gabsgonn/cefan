@@ -369,6 +369,10 @@ export interface AiAnalysisParsed {
               <div *ngIf="!msg.isFromMe" class="message-bubble bubble-customer">
                 <div class="sender-tag">{{ msg.senderName || 'Cliente' }}</div>
 
+                <div class="media-placeholder-badge" *ngIf="msg.mediaType === 'POLL_VOTE'">
+                  🗳️ Opção selecionada
+                </div>
+
                 <!-- Imagem enviada pelo cliente (se presente como Data URI ou HTTP URL) -->
                 <div
                   class="message-media"
@@ -389,7 +393,7 @@ export interface AiAnalysisParsed {
               <!-- Bot or Agent Message Bubble (Outgoing) -->
               <div *ngIf="msg.isFromMe" class="message-bubble" [ngClass]="msg.senderType === 'BOT' ? 'bubble-bot' : 'bubble-agent'">
                 <div class="sender-tag">
-                  <span *ngIf="msg.senderType === 'BOT'">🤖 Assistente IA</span>
+                  <span *ngIf="msg.senderType === 'BOT'">{{ msg.mediaType === 'POLL' ? '📊 Enquete do Assistente IA' : '🤖 Assistente IA' }}</span>
                   <span *ngIf="msg.senderType !== 'BOT'">👨‍🎨 {{ msg.senderName }}</span>
                 </div>
                 <div class="message-body" [innerHTML]="formatMessageText(msg.content)"></div>
