@@ -22,6 +22,8 @@ public class TenantConfigDto {
     @NotBlank(message = "O nome do estúdio é obrigatório")
     private String studioName;
 
+    private String logoBase64;
+
     @NotNull(message = "O valor padrão por hora é obrigatório")
     private BigDecimal defaultHourlyRate;
 
@@ -63,6 +65,7 @@ public class TenantConfigDto {
         return TenantConfigDto.builder()
                 .id(entity.getId())
                 .studioName(entity.getStudioName())
+                .logoBase64(entity.getLogoBase64())
                 .defaultHourlyRate(entity.getDefaultHourlyRate())
                 .fixedSetupCost(entity.getFixedSetupCost())
                 .absorbCreditCardFees(entity.getAbsorbCreditCardFees())

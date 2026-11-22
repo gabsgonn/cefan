@@ -75,4 +75,24 @@ class TenantConfigControllerTest {
 
         verify(tenantConfigService).updateConfig(any(TenantConfigDto.class));
     }
+
+    @Test
+    void shouldReturnStudioBrandingWithoutSensitiveFields() throws Exception {
+        TenantConfigDto dto = TenantConfigDto.builder()
+                .id(UUID.randomUUID())
+                .studioName("Studio Dinamico")
+                .logoBase64("data:image/png;base64,iVBORw0KGgo=")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .build();
+
+        when(tenantConfigService.getConfig()).thenReturn(dto);
+
+        mockMvc.perform(get("/api/v1/tenant-configs/branding"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.studioName").value("Studio Dinamico"))
+                .andExpect(jsonPath("$.logoBase64").value("data:image/png;base64,iVBORw0KGgo="))
+                .andExpect(jsonPath("$.defaultHourlyRate").doesNotExist())
+                .andExpect(jsonPath("$.fixedSetupCost").doesNotExist());
+    }
 }

@@ -14,6 +14,12 @@ public class TenantConfigController {
 
     private final TenantConfigService tenantConfigService;
 
+    @GetMapping("/branding")
+    public ResponseEntity<StudioBrandingResponse> getBranding() {
+        TenantConfigDto config = tenantConfigService.getConfig();
+        return ResponseEntity.ok(new StudioBrandingResponse(config.getStudioName(), config.getLogoBase64()));
+    }
+
     @GetMapping
     public ResponseEntity<TenantConfigDto> getConfig() {
         return ResponseEntity.ok(tenantConfigService.getConfig());
@@ -23,4 +29,6 @@ public class TenantConfigController {
     public ResponseEntity<TenantConfigDto> updateConfig(@Valid @RequestBody TenantConfigDto dto) {
         return ResponseEntity.ok(tenantConfigService.updateConfig(dto));
     }
+
+    public record StudioBrandingResponse(String studioName, String logoBase64) {}
 }

@@ -25,6 +25,9 @@ public class TenantConfig {
     @Column(name = "studio_name", nullable = false)
     private String studioName;
 
+    @Column(name = "logo_base64", columnDefinition = "TEXT")
+    private String logoBase64;
+
     @Column(name = "absorb_credit_card_fees", nullable = false)
     @Builder.Default
     private Boolean absorbCreditCardFees = false;

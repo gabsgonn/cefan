@@ -35,6 +35,9 @@ public class TenantConfigService {
         config.setDefaultHourlyRate(dto.getDefaultHourlyRate());
         config.setFixedSetupCost(dto.getFixedSetupCost());
         config.setAbsorbCreditCardFees(dto.getAbsorbCreditCardFees());
+        if (dto.getLogoBase64() != null) {
+            config.setLogoBase64(dto.getLogoBase64());
+        }
         if (dto.getSignalPercentage() != null) {
             config.setSignalPercentage(dto.getSignalPercentage());
         }
