@@ -45,13 +45,21 @@ public class EvolutionApiClient {
                 .build();
     }
 
+    public static String normalizeNewlines(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        return text.replace("\\r\\n", "\n").replace("\\n", "\n");
+    }
+
     public void sendTextMessage(String instance, String recipientNumber, String text) {
         String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
-        log.info("Enviando mensagem via Evolution API para [{}] na instância [{}]: {}", recipientNumber, targetInstance, text);
+        String normalizedText = normalizeNewlines(text);
+        log.info("Enviando mensagem via Evolution API para [{}] na instância [{}]: {}", recipientNumber, targetInstance, normalizedText);
         try {
             SendTextMessageRequest request = SendTextMessageRequest.builder()
                     .number(recipientNumber)
-                    .text(text)
+                    .text(normalizedText)
                     .build();
 
             restClient.post()
@@ -89,7 +97,7 @@ public class EvolutionApiClient {
         try {
             SendPollMessageRequest request = SendPollMessageRequest.builder()
                     .number(recipientNumber)
-                    .name(name)
+                    .name(normalizeNewlines(name))
                     .selectableCount(Math.max(1, selectableCount))
                     .values(values)
                     .build();
