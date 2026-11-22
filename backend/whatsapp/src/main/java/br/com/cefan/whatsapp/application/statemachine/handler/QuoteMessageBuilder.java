@@ -129,9 +129,11 @@ public final class QuoteMessageBuilder {
         boolean priceShown = false;
         if (showPrice && minPrice != null && maxPrice != null) {
             priceShown = true;
+            String minFmt = formatPriceValue(minPrice);
+            String maxFmt = formatPriceValue(maxPrice);
             StringBuilder priceBlock = new StringBuilder();
             priceBlock.append("💰 *Faixa de Preço Estimada:*\n");
-            priceBlock.append("*R$ ").append(minPrice).append(" a R$ ").append(maxPrice).append("*\n");
+            priceBlock.append("*R$ ").append(minFmt).append(" a R$ ").append(maxFmt).append("*\n");
             priceBlock.append(ESTIMATE_DISCLAIMER);
             if (showMaterialsNote) {
                 priceBlock.append("\n").append(MATERIALS_NOTE);
@@ -267,5 +269,12 @@ public final class QuoteMessageBuilder {
 
     private static boolean hasText(String s) {
         return s != null && !s.trim().isEmpty();
+    }
+
+    private static String formatPriceValue(BigDecimal val) {
+        if (val == null) {
+            return "";
+        }
+        return val.toPlainString().replace('.', ',');
     }
 }

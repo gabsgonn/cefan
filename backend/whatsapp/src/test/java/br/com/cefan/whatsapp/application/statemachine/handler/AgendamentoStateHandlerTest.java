@@ -248,7 +248,8 @@ class AgendamentoStateHandlerTest {
         assertTrue(summaryMsg.contains("Pré-Agendamento Criado"));
         assertEquals(1, summaryMsg.split("Pré-Agendamento Criado", -1).length - 1, "Introdução não pode ser duplicada");
         assertTrue(summaryMsg.contains("14:00 às 17:00"));
-        assertTrue(summaryMsg.contains("120.00"));
+        assertTrue(summaryMsg.contains("R$ 120,00"));
+        assertTrue(summaryMsg.contains("Saldo Restante Estimado:") && summaryMsg.contains("R$ 280,00"));
         assertFalse(summaryMsg.contains("00020126580014br.gov.bcb.pix0136test-pix-code"), "Código PIX deve vir apenas na mensagem separada");
 
         assertEquals("00020126580014br.gov.bcb.pix0136test-pix-code", pixOnlyMsg);

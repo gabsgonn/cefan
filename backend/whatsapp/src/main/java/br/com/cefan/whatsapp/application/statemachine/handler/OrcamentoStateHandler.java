@@ -432,7 +432,8 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
         // Se orcamentoShowPrice = false, ainda calculamos basePrice normalmente para uso no painel e no sinal PIX;
         // a ocultação do saldo restante no pré-agendamento/PIX é feita pelo AgendamentoStateHandler
-        saveContextData(session, analysis, basePrice, minPrice, maxPrice, referenceImageUrl, false, "R$ " + minPrice + " a R$ " + maxPrice);
+        saveContextData(session, analysis, basePrice, minPrice, maxPrice, referenceImageUrl, false,
+                "R$ " + minPrice.toPlainString().replace('.', ',') + " a R$ " + maxPrice.toPlainString().replace('.', ','));
 
         String reply = QuoteMessageBuilder.build(
                 customer.getName(),

@@ -1513,7 +1513,8 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         boolean showPrice = tenantConfig == null || !Boolean.FALSE.equals(tenantConfig.getOrcamentoShowPrice());
         String balanceLine = showPrice
-                ? String.format("💵 *Saldo Restante:* R$ %s (pago no estúdio no dia da sessão)\n", remainingAmount)
+                ? String.format("💵 *Saldo Restante Estimado:* R$ %s (estimativa — valor final confirmado pelo tatuador no dia da sessão)\n",
+                        formatBrl(remainingAmount))
                 : "";
 
         return String.format(
@@ -1531,10 +1532,17 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 scheduledEnd.format(TIME_ONLY_FORMATTER),
                 durationHours,
                 artistName,
-                depositAmount,
+                formatBrl(depositAmount),
                 balanceLine,
                 expirationLabel
         );
+    }
+
+    public static String formatBrl(BigDecimal amount) {
+        if (amount == null) {
+            return "0,00";
+        }
+        return amount.setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',');
     }
 
     // =========================================================================

@@ -149,6 +149,7 @@ public class PaymentProcessingService {
                     ? config.getPixConfirmedMessage() + "\n\n"
                     : "";
 
+            String depositFormatted = AgendamentoStateHandler.formatBrl(appointment.getDepositAmount());
             String confirmationMessage = String.format(
                     "%s🎉 *Pagamento do Sinal Confirmado!* 🎉\n\n" +
                     "Olá, %s! Seu pagamento de *R$ %s* foi confirmado com sucesso!\n\n" +
@@ -162,7 +163,7 @@ public class PaymentProcessingService {
                     "Nos vemos em breve! Qualquer dúvida estamos por aqui. 🎨✨",
                     customHeader,
                     customerName,
-                    appointment.getDepositAmount(),
+                    depositFormatted,
                     dateFormatted,
                     timeFormatted
             );
@@ -187,7 +188,7 @@ public class PaymentProcessingService {
                 studioAdminController.publishNotification(
                         "PAYMENT_RECEIVED",
                         "Sinal PIX Confirmado!",
-                        "Pagamento de R$ " + appointment.getDepositAmount() + " aprovado para " + customerName + ".",
+                        "Pagamento de R$ " + depositFormatted + " aprovado para " + customerName + ".",
                         customerPhone
                 );
             }
@@ -247,12 +248,13 @@ public class PaymentProcessingService {
         String dateFormatted = startBr.format(DATE_FORMATTER);
         String timeFormatted = startBr.format(TIME_FORMATTER);
 
+        String depositFormatted = AgendamentoStateHandler.formatBrl(appointment.getDepositAmount());
         String lateMessage = String.format(
                 "⚠️ *Pagamento Recebido Após o Prazo de Reserva*\n\n" +
                 "Olá, %s! Identificamos o seu pagamento de *R$ %s*, mas o prazo de reserva do horário de *%s às %sh* já havia expirado e a vaga foi liberada na agenda.\n\n" +
                 "Fique tranquilo(a): já acionei nossa equipe aqui no chat para escolher um novo horário com você ou realizar o estorno do sinal! 🎨",
                 customerName,
-                appointment.getDepositAmount(),
+                depositFormatted,
                 dateFormatted,
                 timeFormatted
         );
@@ -278,7 +280,7 @@ public class PaymentProcessingService {
             studioAdminController.publishNotification(
                     "HUMAN_REQUEST",
                     "PIX Tardio / Conflito (" + paymentId + ")",
-                    customerName + " pagou R$ " + appointment.getDepositAmount() + " com " + reason
+                    customerName + " pagou R$ " + depositFormatted + " com " + reason
                             + " (horário original " + dateFormatted + " às " + timeFormatted + "). Reagendar ou estornar.",
                     customerPhone
             );
