@@ -1,6 +1,7 @@
 export interface TenantConfig {
   id?: string;
   studioName: string;
+  logoBase64?: string | null;
   defaultHourlyRate: number;
   fixedSetupCost: number;
   absorbCreditCardFees: boolean;

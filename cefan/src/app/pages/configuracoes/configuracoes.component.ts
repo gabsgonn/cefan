@@ -6,6 +6,7 @@ import { AppointmentService } from '../../core/services/appointment.service';
 import { ChatService, BotStatus } from '../../core/services/chat.service';
 import { TenantConfig } from '../../core/models/tenant-config.model';
 import { NotificationPreferences } from '../../core/models/appointment.model';
+import { DOC_ORIENTATION, NgxImageCompressService } from 'ngx-image-compress';
 
 @Component({
   selector: 'app-configuracoes',
@@ -59,49 +60,125 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
             <p>Parâmetros financeiros consumidos diretamente pelo Gemini Vision ao gerar orçamentos automáticos.</p>
           </div>
 
-          <div class="input-group">
-            <label>Nome do Estúdio / Tenant</label>
-            <input type="text" [(ngModel)]="config.studioName" placeholder="Ex: Vício Tattoo CWB" />
+          <div class="input-group" [class.field-changed]="isFieldChanged('studioName')">
+            <label>
+              Nome do Estúdio / Tenant
+              @if (isFieldChanged('studioName')) {
+                <span class="changed-badge">Alterado</span>
+              }
+            </label>
+            <input type="text" [(ngModel)]="config.studioName" placeholder="Ex: Nome do seu estúdio" />
             <span class="hint">Nome exibido nas mensagens automáticas de WhatsApp enviadas pelo bot.</span>
           </div>
 
+          <div class="logo-section input-group" [class.field-changed]="isFieldChanged('logoBase64')">
+            <h3 class="logo-title">
+              Logo do Estúdio
+              @if (isFieldChanged('logoBase64')) {
+                <span class="changed-badge">Alterado</span>
+              }
+            </h3>
+
+            <div class="logo-boxes">
+              <!-- Caixinha 1: Preview da logo -->
+              <div class="logo-box preview-box" [class.field-changed]="isFieldChanged('logoBase64')">
+                @if (logoPreview()) {
+                  <img [src]="logoPreview()" alt="Logo do estúdio" class="logo-img" />
+                  @if (isFieldChanged('logoBase64')) {
+                    <span class="logo-unsaved-tag">Prévia não salva</span>
+                  }
+                } @else {
+                  <span class="empty-msg">Nenhuma logo adicionada ainda</span>
+                }
+              </div>
+
+              <!-- Caixinha 2: Botão/área de upload -->
+              <label class="logo-box upload-box">
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg, image/webp"
+                  (change)="onFileSelected($event)"
+                  hidden
+                />
+                <span class="upload-icon">
+                  <svg width="25px" height="25px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 4C12.5523 4 13 4.44772 13 5V11H19C19.5523 11 20 11.4477 20 12C20 12.5523 19.5523 13 19 13H13V19C13 19.5523 12.5523 20 12 20C11.4477 20 11 19.5523 11 19V13H5C4.44772 13 4 12.5523 4 12C4 11.4477 4.44772 11 5 11H11V5C11 4.44772 11.4477 4 12 4Z" fill="#FFFFFF"/>
+                  </svg>
+                </span>
+                <span class="upload-text">
+                  {{ logoPreview() ? 'Alterar logo' : 'Adicionar logo' }}
+                </span>
+              </label>
+            </div>
+          </div>
+
           <div class="form-row">
-            <div class="input-group">
-              <label>Valor da Hora do Tatuador (R$)</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('defaultHourlyRate')">
+              <label>
+                Valor da Hora do Tatuador (R$)
+                @if (isFieldChanged('defaultHourlyRate')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="number" step="10.00" [(ngModel)]="config.defaultHourlyRate" />
               <span class="hint">Custo base por hora de agulha estimada pela IA.</span>
             </div>
 
-            <div class="input-group">
-              <label>Custo Fixo de Montagem / Setup (R$)</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('fixedSetupCost')">
+              <label>
+                Custo Fixo de Montagem / Setup (R$)
+                @if (isFieldChanged('fixedSetupCost')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="number" step="5.00" [(ngModel)]="config.fixedSetupCost" />
               <span class="hint">Taxa de biossegurança, materiais descartáveis e agulhas.</span>
             </div>
           </div>
 
           <div class="form-row">
-            <div class="input-group">
-              <label>Sinal de Reserva (% do Orçamento)</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('signalPercentage')">
+              <label>
+                Sinal de Reserva (% do Orçamento)
+                @if (isFieldChanged('signalPercentage')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="number" step="5.00" [(ngModel)]="config.signalPercentage" placeholder="30" />
               <span class="hint">Percentual cobrado via PIX para garantir o agendamento (Padrão: 30%).</span>
             </div>
 
-            <div class="input-group">
-              <label>Valor Mínimo do Sinal (R$)</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('minDepositAmount')">
+              <label>
+                Valor Mínimo do Sinal (R$)
+                @if (isFieldChanged('minDepositAmount')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="number" step="10.00" [(ngModel)]="config.minDepositAmount" placeholder="50.00" />
               <span class="hint">Piso mínimo do valor do sinal (Padrão: R$ 50,00).</span>
             </div>
           </div>
 
           <div class="form-row">
-            <div class="input-group">
-              <label>Expiração do Sinal PIX (Minutos)</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('pixExpirationMinutes')">
+              <label>
+                Expiração do Sinal PIX (Minutos)
+                @if (isFieldChanged('pixExpirationMinutes')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="number" step="15" min="15" [(ngModel)]="config.pixExpirationMinutes" placeholder="120" />
               <span class="hint">Tempo limite para pagamento do sinal antes de liberar a vaga (Padrão: 120 min / 2h).</span>
             </div>
 
-            <div class="input-group">
-              <label>Dias de Funcionamento do Estúdio</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('workingDays')">
+              <label>
+                Dias de Funcionamento do Estúdio
+                @if (isFieldChanged('workingDays')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <select [(ngModel)]="config.workingDays">
                 <option value="SEG-SAB">Segunda a Sábado (Seg-Sáb)</option>
                 <option value="SEG-SEX">Segunda a Sexta (Seg-Sex)</option>
@@ -112,22 +189,37 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
           </div>
 
           <div class="form-row">
-            <div class="input-group">
-              <label>Horário de Abertura</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('openingTime')">
+              <label>
+                Horário de Abertura
+                @if (isFieldChanged('openingTime')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="time" [(ngModel)]="config.openingTime" />
               <span class="hint">Início do expediente diário (Padrão: 10:00).</span>
             </div>
 
-            <div class="input-group">
-              <label>Horário de Fechamento</label>
+            <div class="input-group" [class.field-changed]="isFieldChanged('closingTime')">
+              <label>
+                Horário de Fechamento
+                @if (isFieldChanged('closingTime')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </label>
               <input type="time" [(ngModel)]="config.closingTime" />
               <span class="hint">Término do expediente diário (Padrão: 20:00).</span>
             </div>
           </div>
 
-          <div class="toggle-container">
+          <div class="toggle-container" [class.field-changed]="isFieldChanged('absorbCreditCardFees')">
             <div class="toggle-text">
-              <span class="toggle-title">Absorver Taxas do Gateway (Mercado Pago)</span>
+              <span class="toggle-title">
+                Absorver Taxas do Gateway (Mercado Pago)
+                @if (isFieldChanged('absorbCreditCardFees')) {
+                  <span class="changed-badge">Alterado</span>
+                }
+              </span>
               <span class="toggle-desc">
                 Se ativado, o estúdio arca com as tarifas de transação e o cliente paga exatamente o valor orçado.
               </span>
@@ -139,8 +231,13 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
           </div>
 
           <div class="card-footer">
+            @if (hasUnsavedChanges()) {
+              <button type="button" class="btn btn-secondary" [disabled]="saving()" (click)="discardChanges()">
+                Descartar Alterações
+              </button>
+            }
             <button class="btn btn-primary" [disabled]="saving()" (click)="saveConfig()">
-              {{ saving() ? 'Salvando...' : 'Salvar Parâmetros Financeiros' }}
+              {{ saving() ? 'Salvando...' : (hasUnsavedChanges() ? 'Salvar Parâmetros (' + changedFieldsCount() + ')' : 'Salvar Parâmetros Financeiros') }}
             </button>
           </div>
         </div>
@@ -285,60 +382,105 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
           </p>
         </div>
 
-        <div class="template-group">
-          <label>1. Mensagem de Boas-Vindas (Menu Inicial)</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('welcomeMessage')">
+          <label>
+            1. Mensagem de Boas-Vindas (Menu Inicial)
+            @if (isFieldChanged('welcomeMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="5" [(ngModel)]="config.welcomeMessage" class="template-textarea"></textarea>
           <span class="hint">Enviada na primeira interação ou quando o cliente envia "0" ou "menu".</span>
         </div>
 
-        <div class="template-group">
-          <label>2. Instruções para Envio de Foto de Orçamento (Opção 1)</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('orcamentoIntroMessage')">
+          <label>
+            2. Instruções para Envio de Foto de Orçamento (Opção 1)
+            @if (isFieldChanged('orcamentoIntroMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="4" [(ngModel)]="config.orcamentoIntroMessage" class="template-textarea"></textarea>
           <span class="hint">Orientação sobre envio de foto, tamanho em cm e local do corpo.</span>
         </div>
 
-        <div class="template-group">
-          <label>3. Início de Agendamento (Opção 2)</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('agendamentoIntroMessage')">
+          <label>
+            3. Início de Agendamento (Opção 2)
+            @if (isFieldChanged('agendamentoIntroMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="4" [(ngModel)]="config.agendamentoIntroMessage" class="template-textarea"></textarea>
           <span class="hint">Solicita a preferência de profissional e dias/períodos desejados.</span>
         </div>
 
-        <div class="template-group">
-          <label>4. Mensagem de Transbordo Humano (Opção 3)</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('humanTransferMessage')">
+          <label>
+            4. Mensagem de Transbordo Humano (Opção 3)
+            @if (isFieldChanged('humanTransferMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="3" [(ngModel)]="config.humanTransferMessage" class="template-textarea"></textarea>
           <span class="hint">Informa que a equipe foi notificada e vai assumir o chat.</span>
         </div>
 
-        <div class="template-group">
-          <label>5. Instruções de Pré-Agendamento & Chave PIX</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('pixPaymentMessage')">
+          <label>
+            5. Instruções de Pré-Agendamento & Chave PIX
+            @if (isFieldChanged('pixPaymentMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="3" [(ngModel)]="config.pixPaymentMessage" class="template-textarea"></textarea>
           <span class="hint">Cabeçalho enviado junto com os dados do pré-agendamento e código PIX Copia e Cola.</span>
         </div>
 
-        <div class="template-group">
-          <label>6. Confirmação de Sinal Pago via PIX</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('pixConfirmedMessage')">
+          <label>
+            6. Confirmação de Sinal Pago via PIX
+            @if (isFieldChanged('pixConfirmedMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="3" [(ngModel)]="config.pixConfirmedMessage" class="template-textarea"></textarea>
           <span class="hint">Enviada automaticamente quando o webhook do Mercado Pago acusa pagamento aprovado.</span>
         </div>
 
-        <div class="template-group">
-          <label>7. Mensagem de Reinício de Conversa (Reset Bot)</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('botResetMessage')">
+          <label>
+            7. Mensagem de Reinício de Conversa (Reset Bot)
+            @if (isFieldChanged('botResetMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="2" [(ngModel)]="config.botResetMessage" class="template-textarea"></textarea>
           <span class="hint">Enviada quando o operador clica no botão "Reset Bot".</span>
         </div>
 
-        <div class="template-group">
-          <label>8. Mensagem de Ausência / Fora de Expediente</label>
+        <div class="template-group" [class.field-changed]="isFieldChanged('absenceMessage')">
+          <label>
+            8. Mensagem de Ausência / Fora de Expediente
+            @if (isFieldChanged('absenceMessage')) {
+              <span class="changed-badge">Alterado</span>
+            }
+          </label>
           <textarea rows="3" [(ngModel)]="config.absenceMessage" class="template-textarea"></textarea>
           <span class="hint">Aviso sobre o horário de funcionamento do estúdio ({{ config.workingDays || 'SEG-SAB' }}, {{ config.openingTime || '10:00' }} às {{ config.closingTime || '20:00' }}).</span>
         </div>
 
         <div class="card-footer">
+          @if (hasUnsavedChanges()) {
+            <button type="button" class="btn btn-secondary" [disabled]="saving()" (click)="discardChanges()">
+              Descartar Alterações
+            </button>
+          }
           <button class="btn btn-secondary" (click)="restoreDefaultTemplates()">
             Restaurar Textos Sugeridos
           </button>
           <button class="btn btn-primary" [disabled]="saving()" (click)="saveConfig()">
-            {{ saving() ? 'Salvando...' : 'Salvar Todas as Mensagens no Banco' }}
+            {{ saving() ? 'Salvando...' : (hasUnsavedChanges() ? 'Salvar Mensagens (' + changedFieldsCount() + ')' : 'Salvar Todas as Mensagens no Banco') }}
           </button>
         </div>
       </div>
@@ -495,6 +637,155 @@ import { NotificationPreferences } from '../../core/models/appointment.model';
         color: var(--text-muted);
         margin-top: 0.35rem;
         line-height: 1.35;
+      }
+    }
+
+    .logo-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .logo-title {
+      margin: 0 0 0.65rem 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .logo-boxes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(150px, 190px));
+      gap: 1rem;
+    }
+
+    .logo-box {
+      height: 136px;
+      border-radius: var(--radius-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      text-align: center;
+      box-sizing: border-box;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .preview-box {
+      position: relative;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      overflow: hidden;
+
+      &.field-changed {
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+      }
+
+      .logo-img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: calc(var(--radius-md) - 2px);
+      }
+
+      .logo-unsaved-tag {
+        position: absolute;
+        bottom: 6px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(245, 158, 11, 0.92);
+        color: #111827;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: var(--radius-full);
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+      }
+
+      .empty-msg {
+        font-size: 0.775rem;
+        color: var(--text-muted);
+        line-height: 1.4;
+      }
+    }
+
+    .changed-badge {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 0.45rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: var(--radius-full);
+      background: rgba(245, 158, 11, 0.16);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #fbbf24;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+    }
+
+    .field-changed > input,
+    .field-changed > select,
+    .field-changed > .template-textarea {
+      border-color: #f59e0b !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.14);
+    }
+
+    .toggle-container.field-changed {
+      border-color: rgba(245, 158, 11, 0.55);
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.14);
+    }
+
+    .upload-box {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1.5px dashed var(--border-color);
+      cursor: pointer;
+      user-select: none;
+      justify-content: center;
+      align-items: center;
+      display: flex !important;
+
+      .upload-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radius-full);
+        background: rgba(255, 255, 255, 0.06);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+        color: var(--text-secondary);
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .upload-text {
+        font-size: 0.825rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        transition: color 0.2s;
+      }
+
+      &:hover {
+        border-color: var(--accent-primary);
+        background: rgba(255, 255, 255, 0.06);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+
+        .upload-icon {
+          background: var(--accent-primary);
+          color: #ffffff;
+        }
+
+        .upload-text {
+          color: var(--text-primary);
+        }
+      }
+
+      &:active {
+        transform: scale(0.97);
       }
     }
 
@@ -740,6 +1031,7 @@ export class ConfiguracoesComponent implements OnInit {
   private readonly configService = inject(TenantConfigService);
   private readonly adminService = inject(AppointmentService);
   private readonly chatService = inject(ChatService);
+  private readonly imageCompress = inject(NgxImageCompressService);
 
   readonly activeTab = signal<'FINANCIAL' | 'MESSAGES'>('FINANCIAL');
   readonly saving = signal<boolean>(false);
@@ -748,9 +1040,34 @@ export class ConfiguracoesComponent implements OnInit {
   readonly botStatus = signal<BotStatus | null>(null);
   readonly feedbackMessage = signal<string | null>(null);
   readonly feedbackType = signal<'success' | 'error'>('success');
+  readonly logoPreview = signal<string | null>(null);
+  readonly savedConfig = signal<TenantConfig | null>(null);
+
+  private readonly trackedFields: (keyof TenantConfig)[] = [
+    'studioName',
+    'logoBase64',
+    'defaultHourlyRate',
+    'fixedSetupCost',
+    'absorbCreditCardFees',
+    'signalPercentage',
+    'minDepositAmount',
+    'pixExpirationMinutes',
+    'openingTime',
+    'closingTime',
+    'workingDays',
+    'welcomeMessage',
+    'orcamentoIntroMessage',
+    'agendamentoIntroMessage',
+    'pixPaymentMessage',
+    'humanTransferMessage',
+    'pixConfirmedMessage',
+    'botResetMessage',
+    'absenceMessage'
+  ];
 
   config: TenantConfig = {
-    studioName: 'Vício Tattoo CWB',
+    studioName: '',
+    logoBase64: null,
     defaultHourlyRate: 150.00,
     fixedSetupCost: 50.00,
     absorbCreditCardFees: true,
@@ -852,7 +1169,8 @@ export class ConfiguracoesComponent implements OnInit {
         if (data) {
           this.config = {
             id: data.id,
-            studioName: data.studioName || 'Vício Tattoo CWB',
+            studioName: data.studioName || '',
+            logoBase64: data.logoBase64 || null,
             defaultHourlyRate: data.defaultHourlyRate != null ? Number(data.defaultHourlyRate) : 150.00,
             fixedSetupCost: data.fixedSetupCost != null ? Number(data.fixedSetupCost) : 50.00,
             absorbCreditCardFees: data.absorbCreditCardFees ?? true,
@@ -873,12 +1191,42 @@ export class ConfiguracoesComponent implements OnInit {
             botResetMessage: data.botResetMessage || this.config.botResetMessage,
             absenceMessage: data.absenceMessage || this.config.absenceMessage
           };
+          this.logoPreview.set(data.logoBase64 || null);
+          this.savedConfig.set({ ...this.config });
         }
       },
       error: (err) => {
         console.warn('Erro ao carregar configurações do backend. Usando padrão local.', err);
       }
     });
+  }
+
+  isFieldChanged(field: keyof TenantConfig): boolean {
+    const saved = this.savedConfig();
+    if (!saved) return false;
+    const currentVal = this.config[field];
+    const savedVal = saved[field];
+
+    if (typeof currentVal === 'number' || typeof savedVal === 'number') {
+      return Number(currentVal ?? 0) !== Number(savedVal ?? 0);
+    }
+    return (currentVal ?? '') !== (savedVal ?? '');
+  }
+
+  changedFieldsCount(): number {
+    return this.trackedFields.filter((f) => this.isFieldChanged(f)).length;
+  }
+
+  hasUnsavedChanges(): boolean {
+    return this.changedFieldsCount() > 0;
+  }
+
+  discardChanges(): void {
+    const saved = this.savedConfig();
+    if (!saved) return;
+    this.config = { ...saved };
+    this.logoPreview.set(saved.logoBase64 || null);
+    this.showToast('Alterações descartadas.');
   }
 
   saveConfig(): void {
@@ -895,6 +1243,8 @@ export class ConfiguracoesComponent implements OnInit {
           minDepositAmount: Number(res.minDepositAmount),
           pixExpirationMinutes: Number(res.pixExpirationMinutes) || 120
         };
+        this.logoPreview.set(this.config.logoBase64 || null);
+        this.savedConfig.set({ ...this.config });
         this.showToast('Configurações salvas no banco com sucesso!');
       },
       error: (err) => {
@@ -920,5 +1270,35 @@ export class ConfiguracoesComponent implements OnInit {
     this.feedbackMessage.set(msg);
     this.feedbackType.set(type);
     setTimeout(() => this.feedbackMessage.set(null), 5000);
+  }
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    const file = input.files[0];
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const originalBase64 = reader.result as string;
+
+      this.imageCompress
+        .compressFile(originalBase64, DOC_ORIENTATION.NotDefined, 100, 75, 800, 800)
+        .then((compressedBase64: string) => {
+          const sizeInBytes = this.imageCompress.byteCount(compressedBase64);
+
+          if (sizeInBytes > 400 * 1024) {
+            this.showToast('Mesmo após a compressão, a imagem passou de 400 KB.', 'error');
+            input.value = ''; // Permite selecionar outro arquivo (ou tentar novamente)
+            return;
+          }
+
+          this.logoPreview.set(compressedBase64);
+          this.config.logoBase64 = compressedBase64;
+          input.value = '';
+        });
+    };
+
+    reader.readAsDataURL(file);
   }
 }

@@ -1,8 +1,9 @@
-import { Component, OnInit, inject, signal, effect } from '@angular/core';
+import { Component, inject, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AppointmentService } from '../core/services/appointment.service';
 import { AuthService } from '../core/services/auth.service';
+import { TenantConfigService } from '../core/services/tenant-config.service';
 import { NotificationEvent } from '../core/models/appointment.model';
 
 @Component({
@@ -14,15 +15,20 @@ import { NotificationEvent } from '../core/models/appointment.model';
     <header class="main-header">
       <div class="header-container">
         <div class="brand" [routerLink]="authService.isAuthenticated() ? '/agenda' : null" [style.cursor]="authService.isAuthenticated() ? 'pointer' : 'default'">
-          <div class="logo-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
+          <div class="logo-icon" [class.has-logo]="!!studioLogo()">
+            @if (studioLogo()) {
+              <img [src]="studioLogo()" [alt]="studioName() || 'Logo do estúdio'" class="logo-img" />
+            } @else {
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            }
           </div>
-          <div class="brand-text">
-            <span class="brand-title">CEFAN</span>
-            <span class="studio-badge">{{ authService.currentUser()?.studioName || 'Vício Tattoo' }}</span>
-          </div>
+          @if (studioName()) {
+            <div class="brand-text">
+              <span class="brand-title" [style.font-size]="brandTitleFontSize()" [title]="studioName()">{{ studioName() }}</span>
+            </div>
+          }
         </div>
 
         <!-- Desktop Navigation Links (Hidden on Mobile) -->
@@ -203,7 +209,9 @@ import { NotificationEvent } from '../core/models/appointment.model';
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      flex-shrink: 0;
+      min-width: 0;
+      max-width: 240px;
+      flex-shrink: 1;
       user-select: none;
       transition: opacity 0.2s;
 
@@ -215,6 +223,7 @@ import { NotificationEvent } from '../core/models/appointment.model';
     .logo-icon {
       width: 38px;
       height: 38px;
+      flex-shrink: 0;
       border-radius: 10px;
       background: linear-gradient(135deg, #6366f1, #8b5cf6);
       display: flex;
@@ -222,19 +231,39 @@ import { NotificationEvent } from '../core/models/appointment.model';
       justify-content: center;
       color: white;
       box-shadow: 0 4px 12px var(--accent-glow);
+      overflow: hidden;
+
+      &.has-logo {
+        background: transparent;
+        box-shadow: none;
+      }
+    }
+
+    .logo-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 10px;
+      display: block;
     }
 
     .brand-text {
       display: flex;
       flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .brand-title {
-      font-size: 1.15rem;
+      font-size: 1.1rem;
       font-weight: 800;
       letter-spacing: -0.03em;
       color: var(--text-primary);
-      line-height: 1.1;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: font-size 0.2s ease;
     }
 
     .studio-badge {
@@ -618,8 +647,8 @@ import { NotificationEvent } from '../core/models/appointment.model';
         min-height: 56px;
       }
 
-      .brand-title {
-        font-size: 1.05rem;
+      .brand {
+        max-width: 185px;
       }
 
       .status-label {
@@ -644,10 +673,27 @@ import { NotificationEvent } from '../core/models/appointment.model';
     }
   `]
 })
-export class HeaderComponent implements OnInit {
+export class HeaderComponent {
   readonly adminService = inject(AppointmentService);
   readonly authService = inject(AuthService);
+  readonly tenantConfigService = inject(TenantConfigService);
   private readonly router = inject(Router);
+
+  readonly studioName = computed(() => {
+    if (!this.authService.isAuthenticated()) return '';
+    return this.tenantConfigService.branding()?.studioName || this.authService.currentUser()?.studioName || '';
+  });
+  readonly studioLogo = computed(() => {
+    if (!this.authService.isAuthenticated()) return null;
+    return this.tenantConfigService.branding()?.logoBase64 || null;
+  });
+  readonly brandTitleFontSize = computed(() => {
+    const len = this.studioName().trim().length;
+    if (len <= 14) return '1.1rem';
+    if (len <= 22) return '0.95rem';
+    if (len <= 30) return '0.85rem';
+    return '0.78rem';
+  });
 
   readonly notifications = signal<NotificationEvent[]>([]);
   readonly humanQueueCount = signal<number>(0);
@@ -657,16 +703,14 @@ export class HeaderComponent implements OnInit {
     effect(() => {
       const user = this.authService.currentUser();
       if (user && user.token) {
+        this.tenantConfigService.loadBranding();
         this.refreshAlerts();
       } else {
+        this.tenantConfigService.clearBranding();
         this.notifications.set([]);
         this.humanQueueCount.set(0);
       }
     });
-  }
-
-  ngOnInit(): void {
-    this.refreshAlerts();
   }
 
   toggleNotifications(): void {
@@ -691,4 +735,6 @@ export class HeaderComponent implements OnInit {
   logout(): void {
     this.authService.logout();
   }
+
+
 }
