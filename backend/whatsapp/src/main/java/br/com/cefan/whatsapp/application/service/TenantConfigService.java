@@ -80,6 +80,39 @@ public class TenantConfigService {
         if (dto.getAbsenceMessage() != null) {
             config.setAbsenceMessage(dto.getAbsenceMessage());
         }
+        if (dto.getOrcamentoShowGreeting() != null) {
+            config.setOrcamentoShowGreeting(dto.getOrcamentoShowGreeting());
+        }
+        if (dto.getOrcamentoShowStyle() != null) {
+            config.setOrcamentoShowStyle(dto.getOrcamentoShowStyle());
+        }
+        if (dto.getOrcamentoShowSize() != null) {
+            config.setOrcamentoShowSize(dto.getOrcamentoShowSize());
+        }
+        if (dto.getOrcamentoShowDuration() != null) {
+            config.setOrcamentoShowDuration(dto.getOrcamentoShowDuration());
+        }
+        if (dto.getOrcamentoShowComplexity() != null) {
+            config.setOrcamentoShowComplexity(dto.getOrcamentoShowComplexity());
+        }
+        if (dto.getOrcamentoShowLocation() != null) {
+            config.setOrcamentoShowLocation(dto.getOrcamentoShowLocation());
+        }
+        if (dto.getOrcamentoShowArtists() != null) {
+            config.setOrcamentoShowArtists(dto.getOrcamentoShowArtists());
+        }
+        if (dto.getOrcamentoShowDescription() != null) {
+            config.setOrcamentoShowDescription(dto.getOrcamentoShowDescription());
+        }
+        if (dto.getOrcamentoShowPrice() != null) {
+            config.setOrcamentoShowPrice(dto.getOrcamentoShowPrice());
+        }
+        if (dto.getOrcamentoShowMaterialsNote() != null) {
+            config.setOrcamentoShowMaterialsNote(dto.getOrcamentoShowMaterialsNote());
+        }
+        if (dto.getOrcamentoShowAdjustHint() != null) {
+            config.setOrcamentoShowAdjustHint(dto.getOrcamentoShowAdjustHint());
+        }
 
         config = tenantConfigRepository.save(config);
         log.info("Configurações do estúdio [{}] atualizadas com sucesso.", config.getStudioName());

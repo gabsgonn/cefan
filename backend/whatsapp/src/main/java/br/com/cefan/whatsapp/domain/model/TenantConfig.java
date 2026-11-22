@@ -88,6 +88,50 @@ public class TenantConfig {
     @Column(name = "absence_message", columnDefinition = "TEXT")
     private String absenceMessage;
 
+    @Column(name = "orcamento_show_greeting", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowGreeting = true;
+
+    @Column(name = "orcamento_show_style", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowStyle = true;
+
+    @Column(name = "orcamento_show_size", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowSize = true;
+
+    @Column(name = "orcamento_show_duration", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowDuration = true;
+
+    @Column(name = "orcamento_show_complexity", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowComplexity = true;
+
+    @Column(name = "orcamento_show_location", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowLocation = true;
+
+    @Column(name = "orcamento_show_artists", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowArtists = true;
+
+    @Column(name = "orcamento_show_description", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowDescription = true;
+
+    @Column(name = "orcamento_show_price", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowPrice = true;
+
+    @Column(name = "orcamento_show_materials_note", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowMaterialsNote = true;
+
+    @Column(name = "orcamento_show_adjust_hint", nullable = false)
+    @Builder.Default
+    private Boolean orcamentoShowAdjustHint = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

@@ -61,6 +61,50 @@ public class TenantConfigDto {
 
     private String absenceMessage;
 
+    @NotNull(message = "A configuração de exibição de saudação do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowGreeting = true;
+
+    @NotNull(message = "A configuração de exibição de estilo do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowStyle = true;
+
+    @NotNull(message = "A configuração de exibição de tamanho do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowSize = true;
+
+    @NotNull(message = "A configuração de exibição de duração do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowDuration = true;
+
+    @NotNull(message = "A configuração de exibição de complexidade do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowComplexity = true;
+
+    @NotNull(message = "A configuração de exibição de local do corpo do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowLocation = true;
+
+    @NotNull(message = "A configuração de exibição de artistas do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowArtists = true;
+
+    @NotNull(message = "A configuração de exibição de descrição do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowDescription = true;
+
+    @NotNull(message = "A configuração de exibição de preço do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowPrice = true;
+
+    @NotNull(message = "A configuração de exibição de nota de materiais do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowMaterialsNote = true;
+
+    @NotNull(message = "A configuração de exibição de dica de ajuste do orçamento é obrigatória")
+    @Builder.Default
+    private Boolean orcamentoShowAdjustHint = true;
+
     public static TenantConfigDto fromEntity(TenantConfig entity) {
         return TenantConfigDto.builder()
                 .id(entity.getId())
@@ -83,6 +127,17 @@ public class TenantConfigDto {
                 .humanTransferMessage(entity.getHumanTransferMessage())
                 .botResetMessage(entity.getBotResetMessage())
                 .absenceMessage(entity.getAbsenceMessage())
+                .orcamentoShowGreeting(entity.getOrcamentoShowGreeting() == null || entity.getOrcamentoShowGreeting())
+                .orcamentoShowStyle(entity.getOrcamentoShowStyle() == null || entity.getOrcamentoShowStyle())
+                .orcamentoShowSize(entity.getOrcamentoShowSize() == null || entity.getOrcamentoShowSize())
+                .orcamentoShowDuration(entity.getOrcamentoShowDuration() == null || entity.getOrcamentoShowDuration())
+                .orcamentoShowComplexity(entity.getOrcamentoShowComplexity() == null || entity.getOrcamentoShowComplexity())
+                .orcamentoShowLocation(entity.getOrcamentoShowLocation() == null || entity.getOrcamentoShowLocation())
+                .orcamentoShowArtists(entity.getOrcamentoShowArtists() == null || entity.getOrcamentoShowArtists())
+                .orcamentoShowDescription(entity.getOrcamentoShowDescription() == null || entity.getOrcamentoShowDescription())
+                .orcamentoShowPrice(entity.getOrcamentoShowPrice() == null || entity.getOrcamentoShowPrice())
+                .orcamentoShowMaterialsNote(entity.getOrcamentoShowMaterialsNote() == null || entity.getOrcamentoShowMaterialsNote())
+                .orcamentoShowAdjustHint(entity.getOrcamentoShowAdjustHint() == null || entity.getOrcamentoShowAdjustHint())
                 .build();
     }
 }

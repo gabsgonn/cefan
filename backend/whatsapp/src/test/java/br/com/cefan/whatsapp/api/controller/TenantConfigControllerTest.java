@@ -13,6 +13,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +75,88 @@ class TenantConfigControllerTest {
                 .andExpect(jsonPath("$.defaultHourlyRate").value(220.00));
 
         verify(tenantConfigService).updateConfig(any(TenantConfigDto.class));
+    }
+
+    @Test
+    void shouldGetAndUpdateAllElevenQuoteDisplayToggles() throws Exception {
+        TenantConfigDto dto = TenantConfigDto.builder()
+                .id(UUID.randomUUID())
+                .studioName("Vício Tattoo")
+                .defaultHourlyRate(new BigDecimal("180.00"))
+                .fixedSetupCost(new BigDecimal("60.00"))
+                .absorbCreditCardFees(true)
+                .orcamentoShowGreeting(false)
+                .orcamentoShowStyle(true)
+                .orcamentoShowSize(false)
+                .orcamentoShowDuration(false)
+                .orcamentoShowComplexity(true)
+                .orcamentoShowLocation(false)
+                .orcamentoShowArtists(true)
+                .orcamentoShowDescription(true)
+                .orcamentoShowPrice(false)
+                .orcamentoShowMaterialsNote(false)
+                .orcamentoShowAdjustHint(true)
+                .build();
+
+        when(tenantConfigService.getConfig()).thenReturn(dto);
+        when(tenantConfigService.updateConfig(any(TenantConfigDto.class))).thenReturn(dto);
+
+        mockMvc.perform(get("/api/v1/tenant-configs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orcamentoShowGreeting").value(false))
+                .andExpect(jsonPath("$.orcamentoShowStyle").value(true))
+                .andExpect(jsonPath("$.orcamentoShowSize").value(false))
+                .andExpect(jsonPath("$.orcamentoShowDuration").value(false))
+                .andExpect(jsonPath("$.orcamentoShowComplexity").value(true))
+                .andExpect(jsonPath("$.orcamentoShowLocation").value(false))
+                .andExpect(jsonPath("$.orcamentoShowArtists").value(true))
+                .andExpect(jsonPath("$.orcamentoShowDescription").value(true))
+                .andExpect(jsonPath("$.orcamentoShowPrice").value(false))
+                .andExpect(jsonPath("$.orcamentoShowMaterialsNote").value(false))
+                .andExpect(jsonPath("$.orcamentoShowAdjustHint").value(true));
+
+        mockMvc.perform(put("/api/v1/tenant-configs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(dto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orcamentoShowGreeting").value(false))
+                .andExpect(jsonPath("$.orcamentoShowPrice").value(false))
+                .andExpect(jsonPath("$.orcamentoShowMaterialsNote").value(false))
+                .andExpect(jsonPath("$.orcamentoShowAdjustHint").value(true));
+    }
+
+    @Test
+    void shouldRejectUpdateWithBadRequestWhenQuoteDisplayToggleIsExplicitlyNull() throws Exception {
+        List<String> toggleFields = List.of(
+                "orcamentoShowGreeting",
+                "orcamentoShowStyle",
+                "orcamentoShowSize",
+                "orcamentoShowDuration",
+                "orcamentoShowComplexity",
+                "orcamentoShowLocation",
+                "orcamentoShowArtists",
+                "orcamentoShowDescription",
+                "orcamentoShowPrice",
+                "orcamentoShowMaterialsNote",
+                "orcamentoShowAdjustHint"
+        );
+
+        for (String toggleField : toggleFields) {
+            String invalidPayload = String.format("""
+                    {
+                      "studioName": "Vício Tattoo",
+                      "defaultHourlyRate": 180.00,
+                      "fixedSetupCost": 60.00,
+                      "absorbCreditCardFees": true,
+                      "%s": null
+                    }
+                    """, toggleField);
+
+            mockMvc.perform(put("/api/v1/tenant-configs")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidPayload))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     @Test
