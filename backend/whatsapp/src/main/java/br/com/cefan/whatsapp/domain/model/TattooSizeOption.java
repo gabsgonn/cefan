@@ -133,6 +133,61 @@ public enum TattooSizeOption {
         return parseSingleSegment(normalized);
     }
 
+    /**
+     * Reconhece apenas ajustes explícitos de tamanho por palavra natural ("flash", "pequena",
+     * "média", "grande", "fechamento") ou medida em centímetros ("10cm", "20x15cm").
+     * Não aceita letras isoladas (A-E) nem números isolados (1-5), evitando colisão com ações do menu.
+     */
+    public static Optional<TattooSizeOption> fromExplicitAdjustment(String rawInput) {
+        if (rawInput == null || rawInput.isBlank()) {
+            return Optional.empty();
+        }
+        String clean = normalizeText(rawInput);
+        if (clean.isBlank()) {
+            return Optional.empty();
+        }
+        if (FECHAMENTO_PATTERN.matcher(clean).find()) {
+            return Optional.of(FECHAMENTO);
+        }
+        if (GRANDE_WORD_PATTERN.matcher(clean).find()) {
+            return Optional.of(GRANDE);
+        }
+        if (MEDIA_WORD_PATTERN.matcher(clean).find()) {
+            return Optional.of(MEDIA);
+        }
+        if (PEQUENA_WORD_PATTERN.matcher(clean).find()) {
+            return Optional.of(PEQUENA);
+        }
+        if (FLASH_WORD_PATTERN.matcher(clean).find()) {
+            return Optional.of(FLASH);
+        }
+        return parseCentimeters(clean);
+    }
+
+    private static Optional<TattooSizeOption> parseCentimeters(String clean) {
+        Matcher matcher = CM_PATTERN.matcher(clean);
+        if (matcher.find()) {
+            try {
+                int d1 = Integer.parseInt(matcher.group(1));
+                int d2 = matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 0;
+                int maxCm = Math.max(d1, d2);
+                if (maxCm >= 26) {
+                    return Optional.of(FECHAMENTO);
+                } else if (maxCm >= 19) {
+                    return Optional.of(GRANDE);
+                } else if (maxCm >= 11) {
+                    return Optional.of(MEDIA);
+                } else if (maxCm >= 6) {
+                    return Optional.of(PEQUENA);
+                } else if (maxCm >= 1) {
+                    return Optional.of(FLASH);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return Optional.empty();
+    }
+
     private static Optional<TattooSizeOption> parseSingleSegment(String clean) {
         if (clean == null || clean.isBlank()) {
             return Optional.empty();

@@ -8,4 +8,13 @@ import br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookReques
 public interface ConversationStateHandler {
     ConversationState getSupportedState();
     void handle(Customer customer, ConversationSession session, EvolutionWebhookRequest webhook, String messageText);
+
+    default void handle(
+            Customer customer,
+            ConversationSession session,
+            EvolutionWebhookRequest webhook,
+            String messageText,
+            UserIntent intent) {
+        handle(customer, session, webhook, messageText);
+    }
 }
