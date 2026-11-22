@@ -370,6 +370,9 @@ public class StudioAdminController implements WebMvcConfigurer {
 
         ConversationState oldState = session.getCurrentState();
         session.setCurrentState(request.getState());
+        if (request.getState() == ConversationState.MENU) {
+            session.setContextData(null);
+        }
         session.setLastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         session = sessionRepository.save(session);
 

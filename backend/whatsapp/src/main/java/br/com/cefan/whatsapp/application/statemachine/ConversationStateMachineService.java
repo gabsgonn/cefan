@@ -115,11 +115,13 @@ public class ConversationStateMachineService {
                 session.getLastInteractionAt().isBefore(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).minusHours(24))) {
             log.info("Sessão inativa há mais de 24h para cliente [{}]. Resetando para MENU.", customer.getPhone());
             session.setCurrentState(ConversationState.MENU);
+            session.setContextData(null);
         }
 
         // 3. Se o cliente enviou uma imagem diretamente no MENU, encaminha direto para o orçamento com IA
         if (session.getCurrentState() == ConversationState.MENU && hasImage) {
             log.info("Imagem recebida diretamente no estado MENU do cliente [{}]. Encaminhando para ORCAMENTO_AGUARDANDO_FOTO.", customer.getPhone());
+            session.setContextData(null);
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
         }
 

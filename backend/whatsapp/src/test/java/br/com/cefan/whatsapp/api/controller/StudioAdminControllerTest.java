@@ -222,6 +222,24 @@ class StudioAdminControllerTest {
     }
 
     @Test
+    void shouldClearContextDataWhenFinishingHumanHandoffToMenu() throws Exception {
+        sessionCarlos.setContextData("{\"style\":\"Realismo Preto e Cinza\",\"estimatedHours\":3.5,\"referenceImageUrl\":\"data:image/jpeg;base64,OLD\"}");
+        sessionRepository.save(sessionCarlos);
+
+        mockMvc.perform(patch("/api/v1/conversations/" + sessionCarlos.getId() + "/state")
+                        .with(user("carlos.test@viciotattoo.com").roles("ARTIST"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("state", "MENU", "notifyCustomer", true))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentState").value("MENU"));
+
+        ConversationSession updated = sessionRepository.findById(sessionCarlos.getId()).orElseThrow();
+        assertEquals(ConversationState.MENU, updated.getCurrentState());
+        assertNull(updated.getContextData());
+        verify(evolutionApiClient).sendTextMessage(eq("5541999990001"), contains("Atendimento finalizado pelo tatuador"));
+    }
+
+    @Test
     void shouldReturnDiagnosticsHealthReconnectAndReportIssue() throws Exception {
         mockMvc.perform(get("/api/v1/bot/health-status")
                         .with(user("admin@viciotattoo.com").roles("OWNER")))

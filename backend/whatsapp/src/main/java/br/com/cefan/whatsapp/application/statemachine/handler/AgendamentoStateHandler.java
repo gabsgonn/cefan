@@ -245,8 +245,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         // 2. Retorno explícito para orçamento com IA (sem interceptar "o mesmo do orçamento" na confirmação de artista)
         if (isNewQuoteRequest(normalizedInput)) {
-            clearSchedulingContext(context);
-            writeContextMap(session, context);
+            session.setContextData(null);
             session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
             String customTemplate = MenuStateHandler.resolveCleanOrcamentoIntro(tenantConfig);
             String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",

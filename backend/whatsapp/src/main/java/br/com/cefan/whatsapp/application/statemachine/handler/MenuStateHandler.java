@@ -95,6 +95,7 @@ public class MenuStateHandler implements ConversationStateHandler {
 
         switch (resolvedIntent) {
             case ORCAMENTO -> {
+                session.setContextData(null);
                 session.setCurrentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO);
                 String customTemplate = resolveCleanOrcamentoIntro(config);
                 String reply = String.format("Perfeito, %s! 🎨\n\n%s\n\n💡 _Você pode digitar 0 a qualquer momento para voltar ao menu inicial._",

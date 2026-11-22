@@ -343,6 +343,30 @@ class ConversationStateMachineServiceTest {
     }
 
     @Test
+    void shouldClearStaleContextWhenChoosingOrcamentoFromMenuSoTextDoesNotReuseOldQuote() {
+        ConversationSession session = ConversationSession.builder()
+                .customer(customer)
+                .currentState(ConversationState.MENU)
+                .contextData("{\"style\":\"Arte Personalizada\",\"estimatedHours\":2.5,\"referenceImageUrl\":\"data:image/jpeg;base64,OLD\"}")
+                .lastInteractionAt(OffsetDateTime.now())
+                .build();
+
+        when(sessionRepository.findByCustomer(customer)).thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(ConversationSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 1. Escolhe "1" no MENU -> limpa contextData antigo e pede nova foto
+        stateMachineService.process(customer, createWebhook("1", false));
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+        org.junit.jupiter.api.Assertions.assertNull(session.getContextData());
+
+        // 2. Envia texto (ex: "grande" ou "D") sem mandar nova foto -> NÃO reaproveita orçamento antigo, pede foto!
+        stateMachineService.process(customer, createWebhook("grande", false));
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("foto de referência"));
+        verify(evolutionApiClient, never()).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("Orçamento Estimado"));
+    }
+
+    @Test
     void shouldSelectThirdTimeSlotOn3DuringSchedulingWithQuoteContextAndNotTriggerVoltar() {
         UUID marianaId = UUID.randomUUID();
         br.com.cefan.whatsapp.domain.model.User mariana = br.com.cefan.whatsapp.domain.model.User.builder()
