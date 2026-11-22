@@ -1305,19 +1305,26 @@ export interface CalendarDayColumn {
       }
 
       .metrics-grid {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
         overflow-x: auto;
         scroll-snap-type: x mandatory;
         scrollbar-width: none;
-        gap: 0.75rem;
-        margin-bottom: 1.25rem;
-        -webkit-overflow-scrolling: touch;
         padding-bottom: 0.25rem;
 
+        &::-webkit-scrollbar {
+          display: none;
+        }
+
         .metric-card {
-          flex: 0 0 75%;
           scroll-snap-align: start;
           padding: 1rem;
+        }
+
+        .metric-value {
+          white-space: nowrap;
         }
       }
 

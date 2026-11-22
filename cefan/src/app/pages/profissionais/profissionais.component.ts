@@ -690,20 +690,25 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
       }
 
       .metrics-grid {
-        display: flex;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        scrollbar-width: none;
+        grid-template-columns: repeat(2, 1fr);
         gap: 0.75rem;
-        margin-bottom: 1.25rem;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.25rem;
+        margin-bottom: 1.5rem;
+      }
 
-        .metric-card {
-          flex: 0 0 70%;
-          scroll-snap-align: start;
-          padding: 1rem;
-        }
+      .metric-card {
+        padding: 0.875rem 1rem;
+        justify-content: space-between; // Mantém os números alinhados na base mesmo se um título quebrar em 2 linhas
+        gap: 0.5rem;
+        min-width: 0; // Evita que textos longos estourem a largura da coluna
+      }
+
+      .metric-label {
+        font-size: 0.7rem;
+        line-height: 1.25;
+      }
+
+      .metric-value {
+        font-size: 1.5rem;
       }
 
       .filter-bar {
