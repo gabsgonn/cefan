@@ -1,15 +1,22 @@
-# Stage 1: Build do Painel Angular 22
-FROM node:22-alpine AS build
+# Estágio base com dependências
+FROM node:22-alpine AS base
 WORKDIR /app
-
 COPY package*.json ./
 RUN npm ci
 
+# Estágio de desenvolvimento (Hot Reload + Proxy API)
+FROM base AS dev
+ENV NG_CLI_ANALYTICS=false
+EXPOSE 4200
+CMD ["npx", "ng", "serve", "--host", "0.0.0.0", "--proxy-config", "proxy.conf.json"]
+
+# Stage 1: Build do Painel Angular 22
+FROM base AS build
 COPY . .
 RUN npm run build
 
 # Stage 2: Servidor Nginx de Produção (SPA + Proxy API)
-FROM nginx:alpine
+FROM nginx:alpine AS prod
 
 RUN printf 'server {\n\
     listen 80;\n\

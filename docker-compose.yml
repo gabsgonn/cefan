@@ -69,7 +69,7 @@ services:
     container_name: evolution-manager
     restart: always
     ports:
-      - "8081:80"
+      - "8080:80"
     environment:
       - VITE_EVOLUTION_API_URL=http://${VPS_IP:-localhost}:8081
       - BACKEND_URL=http://${VPS_IP:-localhost}:8081
@@ -115,10 +115,14 @@ services:
     build:
       context: ./cefan
       dockerfile: Dockerfile
+      target: dev
     container_name: cefan_frontend
     restart: always
     ports:
-      - "4200:80"
+      - "4200:4200"
+    volumes:
+      - ./cefan:/app
+      - /app/node_modules
     networks:
       - evolution-net
     depends_on:

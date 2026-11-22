@@ -22,6 +22,7 @@
 plano-inicial.md
 
 # Arquivos locais de propriedades com credenciais
+**/application.properties
 **/application-local.properties
 **/application-local.yml
 **/application-local.yaml
@@ -51,6 +52,8 @@ secret.json
 secrets.json
 credentials.json
 client_secret*.json
+modelagem-dados.md
+plano-final.md
 
 # ==========================================
 # IDEs e Editores
@@ -144,3 +147,4 @@ ehthumbs.db
 Thumbs.db
 desktop.ini
 estado-do-projeto.md
+backend/whatsapp/src/main/resources/application.properties
