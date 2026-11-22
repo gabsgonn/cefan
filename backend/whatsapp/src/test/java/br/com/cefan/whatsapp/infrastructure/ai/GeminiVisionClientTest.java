@@ -22,6 +22,7 @@ class GeminiVisionClientTest {
         TattooAnalysisResult result = client.analyzeTattoo("base64data", "image/jpeg", "Quero no braço");
 
         assertNotNull(result);
+        assertTrue(result.isFallback());
         assertEquals("Arte Personalizada", result.getStyle());
         assertEquals("MEDIA", result.getComplexityLevel());
         assertEquals(1.2, result.getComplexityMultiplier());
@@ -33,14 +34,36 @@ class GeminiVisionClientTest {
         GeminiVisionClient client = new GeminiVisionClient(
                 objectMapper,
                 "fake-api-key",
-                "gemini-1.5-flash",
+                "gemini-2.5-flash",
                 "https://generativelanguage.googleapis.com/v1beta"
         );
 
         TattooAnalysisResult result = client.analyzeTattoo("", "image/jpeg", "Quero no braço");
 
         assertNotNull(result);
+        assertTrue(result.isFallback());
         assertEquals("Arte Personalizada", result.getStyle());
+    }
+
+    @Test
+    void shouldReturnFallbackOnApiErrorAndKeepFallbackFalseOnValidGeminiJson() throws Exception {
+        GeminiVisionClient client = new GeminiVisionClient(
+                objectMapper,
+                "fake-api-key",
+                "gemini-2.5-flash",
+                "http://127.0.0.1:1"
+        );
+
+        TattooAnalysisResult apiErrorResult = client.analyzeTattoo("aGVsbG8=", "image/jpeg", "leão no antebraço");
+        assertNotNull(apiErrorResult);
+        assertTrue(apiErrorResult.isFallback());
+
+        TattooAnalysisResult parsedGemini = objectMapper.readValue(
+                "{\"style\":\"Old School\",\"sizeCategory\":\"MEDIA\",\"estimatedHours\":2.0,\"complexityLevel\":\"MEDIA\"}",
+                TattooAnalysisResult.class
+        );
+        assertFalse(parsedGemini.isFallback());
+        assertEquals("Old School", parsedGemini.getStyle());
     }
 
     @Test

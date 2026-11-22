@@ -151,6 +151,13 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
             TattooAnalysisResult rawAnalysis = geminiVisionClient.analyzeTattoo(base64Image, mimeType, combinedNotes);
             final TattooAnalysisResult analysis = (rawAnalysis != null) ? rawAnalysis : createLocalFallbackAnalysis(combinedNotes);
+            if (analysis.isFallback()) {
+                log.warn("Orçamento gerado via FALLBACK_LOCAL para cliente [{}]: estilo=[{}], horas=[{}]",
+                        customer.getPhone(), analysis.getStyle(), analysis.getEstimatedHours());
+            } else {
+                log.info("Orçamento gerado via GEMINI_VISION para cliente [{}]: estilo=[{}], horas=[{}]",
+                        customer.getPhone(), analysis.getStyle(), analysis.getEstimatedHours());
+            }
 
             // A IA estima o tamanho pela foto; só sobrescreve se o cliente informou medida/categoria explícita
             Optional<TattooSizeOption> userChosenSize = TattooSizeOption.fromExplicitAdjustment(messageText)
@@ -855,6 +862,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
                 .suggestedBodyLocation("Braço, Perna ou Costas (A combinar)")
                 .technicalNotes("Projeto personalizado. Anatomia, encaixe e sessões serão definidos diretamente com o tatuador especialista.")
                 .recommendedArtists(List.of("Carlos Silveira"))
+                .fallback(true)
                 .build();
         applyExplicitStyleOverrideIfPresent(base, notes);
         return base;

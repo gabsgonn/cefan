@@ -26,4 +26,6 @@ public class TattooAnalysisResult {
     private List<String> recommendedArtists;
     private Double suggestedPriceMin;
     private Double suggestedPriceMax;
+    @Builder.Default
+    private boolean fallback = false;
 }

@@ -41,7 +41,7 @@ public class GeminiVisionClient {
     public GeminiVisionClient(
             ObjectMapper objectMapper,
             @Value("${gemini.api.key:}") String apiKey,
-            @Value("${gemini.api.model:gemini-1.5-flash}") String model,
+            @Value("${gemini.api.model:gemini-2.5-flash}") String model,
             @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta}") String baseUrl,
             UserRepository userRepository) {
         this.objectMapper = objectMapper;
@@ -55,12 +55,12 @@ public class GeminiVisionClient {
 
     public TattooAnalysisResult analyzeTattoo(String base64Image, String mimeType, String customerNotes) {
         if (apiKey.isBlank()) {
-            log.info("Chave GEMINI_API_KEY não configurada. Aplicando estimativa padrão para a arte.");
+            log.warn("GEMINI_FALLBACK ativado [motivo=MISSING_API_KEY, model={}]: GEMINI_API_KEY não configurada.", model);
             return createFallbackResult(customerNotes);
         }
 
         if (base64Image == null || base64Image.isBlank()) {
-            log.warn("Nenhum dado de imagem em base64 fornecido. Aplicando estimativa padrão.");
+            log.warn("GEMINI_FALLBACK ativado [motivo=EMPTY_IMAGE, model={}]: base64 da imagem ausente/vazio.", model);
             return createFallbackResult(customerNotes);
         }
 
@@ -93,7 +93,7 @@ public class GeminiVisionClient {
                             .build())
                     .build();
 
-            log.info("Enviando imagem para análise com Google Gemini Vision ({})", model);
+            log.info("Enviando imagem para análise com Google Gemini Vision ({}, {} bytes base64)", model, sanitizedBase64.length());
 
             GeminiGenerateContentResponse response = restClient.post()
                     .uri("/models/{model}:generateContent?key={apiKey}", model, apiKey)
@@ -107,16 +107,17 @@ public class GeminiVisionClient {
                 if (rawJson != null && !rawJson.isBlank()) {
                     String cleanJson = cleanJsonString(rawJson);
                     TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
-                    log.info("Arte analisada com sucesso: Estilo=[{}], Horas=[{}], Complexidade=[{}]",
-                            result.getStyle(), result.getEstimatedHours(), result.getComplexityLevel());
+                    result.setFallback(false);
+                    log.info("GEMINI_VISION sucesso [model={}]: Estilo=[{}], Tamanho=[{}], Horas=[{}], Complexidade=[{}]",
+                            model, result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getComplexityLevel());
                     return result;
                 }
             }
 
-            log.warn("Resposta vazia da API Gemini. Utilizando estimativa de segurança.");
+            log.warn("GEMINI_FALLBACK ativado [motivo=EMPTY_RESPONSE, model={}]: resposta vazia da API Gemini.", model);
             return createFallbackResult(customerNotes);
         } catch (Exception e) {
-            log.error("Erro ao processar imagem no Gemini Vision: {}. Retornando estimativa padrão.", e.getMessage(), e);
+            log.warn("GEMINI_FALLBACK ativado [motivo=API_ERROR, model={}]: {}", model, e.getMessage(), e);
             return createFallbackResult(customerNotes);
         }
     }
@@ -207,6 +208,12 @@ public class GeminiVisionClient {
     }
 
     public TattooAnalysisResult createFallbackResult(String customerNotes) {
+        TattooAnalysisResult result = buildFallbackResult(customerNotes);
+        result.setFallback(true);
+        return result;
+    }
+
+    private TattooAnalysisResult buildFallbackResult(String customerNotes) {
         String lower = extractEffectiveStyleNotes(customerNotes);
         Optional<TattooSizeOption> sizeOpt = TattooSizeOption.fromInput(customerNotes);
 
