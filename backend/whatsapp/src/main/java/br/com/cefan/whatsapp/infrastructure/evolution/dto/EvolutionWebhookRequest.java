@@ -173,6 +173,7 @@ public class EvolutionWebhookRequest {
         private ViewOnceMessage viewOnceMessageV2Extension;
         private EphemeralMessage ephemeralMessage;
         private DocumentWithCaptionMessage documentWithCaptionMessage;
+        private Object pollUpdateMessage;
         private Object text;
         private Object caption;
         private Object base64;
@@ -626,13 +627,35 @@ public class EvolutionWebhookRequest {
         return d.getFromMe() != null && Boolean.parseBoolean(d.getFromMe().toString());
     }
 
+    public boolean isPollUpdateMessage() {
+        WebhookData d = getData();
+        if (d == null) {
+            return false;
+        }
+        if ("pollUpdateMessage".equalsIgnoreCase(d.getMessageType())) {
+            return true;
+        }
+        return d.getMessage() != null && d.getMessage().getPollUpdateMessage() != null;
+    }
+
     /**
-     * Retorna o ID da mensagem da enquete em eventos messages.update da Evolution API 2.x (data.keyId ou data.key.id).
+     * Retorna o ID da mensagem original da enquete:
+     * 1. Em messages.upsert com pollUpdateMessage (Evolution 2.3.7): data.message.pollUpdateMessage.pollCreationMessageKey.id
+     * 2. Em messages.update: data.keyId ou data.key.id
      */
     public String extractPollUpdateKeyId() {
         WebhookData d = getData();
         if (d == null) {
             return null;
+        }
+        if (d.getMessage() != null && d.getMessage().getPollUpdateMessage() instanceof Map<?, ?> pollUpdateMap) {
+            Object creationKeyObj = pollUpdateMap.get("pollCreationMessageKey");
+            if (creationKeyObj instanceof Map<?, ?> creationKeyMap) {
+                Object creationId = creationKeyMap.get("id");
+                if (creationId != null && !creationId.toString().isBlank()) {
+                    return creationId.toString().trim();
+                }
+            }
         }
         if (d.getKeyId() != null && !d.getKeyId().toString().isBlank()) {
             return d.getKeyId().toString().trim();

@@ -25,6 +25,13 @@ public class MessageHandlingService {
 
     @Transactional
     public void handleIncomingMessage(EvolutionWebhookRequest webhook) {
+        if (webhook == null) {
+            return;
+        }
+        if (webhook.hasPollUpdates() || webhook.isPollUpdateMessage()) {
+            handleMessageUpdate(webhook);
+            return;
+        }
         if (webhook.isFromMe()) {
             log.debug("Ignorando mensagem enviada por nós mesmos.");
             return;

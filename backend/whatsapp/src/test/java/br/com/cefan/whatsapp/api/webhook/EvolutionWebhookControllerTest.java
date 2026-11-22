@@ -250,4 +250,49 @@ class EvolutionWebhookControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(truncated.endsWith("... [truncado]"));
         org.junit.jupiter.api.Assertions.assertTrue(truncated.length() < 2050);
     }
+
+    @Test
+    void shouldExtractPollCreationKeyIdAndVotedIndexFromEvolution237MessagesUpsertPollUpdateMessage() throws Exception {
+        String realUpsertPollVotePayload = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541999074863@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "VOTE_MSG_ID_999"
+                    },
+                    "pushName": "Gabriel",
+                    "message": {
+                      "pollUpdateMessage": {
+                        "pollCreationMessageKey": {
+                          "remoteJid": "5541999074863@s.whatsapp.net",
+                          "fromMe": true,
+                          "id": "3EB0C8E671431008302C88"
+                        }
+                      }
+                    },
+                    "messageType": "pollUpdateMessage",
+                    "pollUpdates": [
+                      { "name": "Fazer orçamento", "voters": ["210745757270087@lid"] },
+                      { "name": "Agendar sessão", "voters": [] },
+                      { "name": "Falar com o tatuador", "voters": [] },
+                      { "name": "Nossos artistas e portfólio", "voters": [] }
+                    ]
+                  }
+                }
+                """;
+
+        br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest parsed =
+                new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                        realUpsertPollVotePayload,
+                        br.com.cefan.whatsapp.infrastructure.evolution.dto.EvolutionWebhookRequest.class
+                );
+
+        org.junit.jupiter.api.Assertions.assertTrue(parsed.isPollUpdateMessage());
+        org.junit.jupiter.api.Assertions.assertTrue(parsed.hasPollUpdates());
+        org.junit.jupiter.api.Assertions.assertEquals("3EB0C8E671431008302C88", parsed.extractPollUpdateKeyId());
+        org.junit.jupiter.api.Assertions.assertEquals(0, parsed.extractVotedPollOptionIndex().orElse(-1));
+    }
 }
