@@ -465,12 +465,20 @@ h1, h2, h3, .page-title {
   }
 }
 
+.modal-sheet-handle {
+  display: none;
+}
+
 /* Mobile-First Bottom Sheet Styling for iOS */
 @media (max-width: 640px) {
   .modal-backdrop {
     padding: 0;
     align-items: flex-end;
     justify-content: stretch;
+
+    &.dragging {
+      animation: none;
+    }
   }
 
   .modal-content {
@@ -483,26 +491,61 @@ h1, h2, h3, .page-title {
     padding-bottom: calc(var(--safe-bottom) + 0.5rem);
     animation: sheetSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 
+    &.dragging {
+      animation: none;
+      transition: none;
+    }
+
+    &.snapping {
+      animation: none;
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    &.dismissing-drag {
+      animation: none;
+      transition: transform 0.22s cubic-bezier(0.4, 0, 1, 1);
+    }
+
     &.closing {
       animation: sheetSlideDown 0.24s cubic-bezier(0.4, 0, 1, 1) forwards;
     }
+  }
 
-    /* Grab Handle bar at top of Bottom Sheet */
-    &::before {
-      content: '';
-      display: block;
-      width: 40px;
-      height: 5px;
-      background: rgba(255, 255, 255, 0.3);
-      border-radius: 3px;
-      margin: 10px auto 4px auto;
-      flex-shrink: 0;
+  /* Interactive Grab Handle bar at top of Bottom Sheet */
+  .modal-sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0 6px 0;
+    flex-shrink: 0;
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+
+    &:active {
+      cursor: grabbing;
+
+      .modal-sheet-pill {
+        background: rgba(255, 255, 255, 0.5);
+        width: 46px;
+      }
     }
   }
 
+  .modal-sheet-pill {
+    display: block;
+    width: 40px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    transition: width 0.15s ease, background-color 0.15s ease;
+  }
+
   .modal-header {
-    padding: 0.75rem 1.25rem 1rem 1.25rem;
+    padding: 0.5rem 1.25rem 1rem 1.25rem;
     flex-shrink: 0;
+    touch-action: none;
+    user-select: none;
   }
 
   .modal-body {

@@ -6,7 +6,8 @@ import {
   HostListener,
   OnDestroy,
   ElementRef,
-  ViewChild
+  ViewChild,
+  signal
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
@@ -19,6 +20,8 @@ import { CommonModule } from '@angular/common';
       *ngIf="isRendered"
       class="modal-backdrop"
       [class.closing]="isClosing"
+      [class.dragging]="isDragging()"
+      [style.opacity]="backdropOpacity()"
       (mousedown)="onBackdropMouseDown($event)"
       (click)="onBackdropClick($event)"
       role="dialog"
@@ -28,11 +31,34 @@ import { CommonModule } from '@angular/common';
       <div
         #contentRef
         class="modal-content"
-        [class.closing]="isClosing"
+        [class.closing]="isClosing && !isDismissingByDrag()"
+        [class.dragging]="isDragging()"
+        [class.snapping]="isSnappingBack()"
+        [class.dismissing-drag]="isDismissingByDrag()"
         [style.max-width]="maxWidth"
+        [style.transform]="sheetTransform()"
         (click)="$event.stopPropagation()"
       >
-        <div class="modal-header" *ngIf="title || hasCustomHeader">
+        <!-- Mobile Bottom-Sheet Drag Handle -->
+        <div
+          class="modal-sheet-handle"
+          (pointerdown)="onSheetPointerDown($event)"
+          (pointermove)="onSheetPointerMove($event)"
+          (pointerup)="onSheetPointerUp($event)"
+          (pointercancel)="onSheetPointerUp($event)"
+          aria-hidden="true"
+        >
+          <span class="modal-sheet-pill"></span>
+        </div>
+
+        <div
+          class="modal-header"
+          *ngIf="title || hasCustomHeader"
+          (pointerdown)="onSheetPointerDown($event)"
+          (pointermove)="onSheetPointerMove($event)"
+          (pointerup)="onSheetPointerUp($event)"
+          (pointercancel)="onSheetPointerUp($event)"
+        >
           <ng-content select="[modal-header]"></ng-content>
           <h3 *ngIf="title">{{ title }}</h3>
           <button
@@ -75,9 +101,115 @@ export class ModalComponent implements OnDestroy {
   isRendered = false;
   isClosing = false;
 
+  readonly isDragging = signal(false);
+  readonly isSnappingBack = signal(false);
+  readonly isDismissingByDrag = signal(false);
+  readonly dragOffsetY = signal(0);
+
   private _isOpen = false;
   private closeTimer: any = null;
+  private snapTimer: any = null;
   private backdropClickedDirectly = false;
+  private dragStartY = 0;
+  private dragStartTime = 0;
+  private activePointerId: number | null = null;
+
+  sheetTransform(): string | null {
+    if (this.isDismissingByDrag()) {
+      return 'translateY(100%)';
+    }
+    if (this.isDragging() || this.isSnappingBack()) {
+      return `translateY(${this.dragOffsetY()}px)`;
+    }
+    return null;
+  }
+
+  backdropOpacity(): number | null {
+    if (!this.isDragging()) return null;
+    const offset = Math.max(0, this.dragOffsetY());
+    return Math.max(0.2, 1 - offset / 420);
+  }
+
+  onSheetPointerDown(event: PointerEvent): void {
+    // Only enable sheet drag on mobile bottom-sheet layout (<= 640px)
+    if (typeof window === 'undefined' || window.innerWidth > 640) return;
+    if (this.isClosing) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, a, input, select, textarea')) return;
+
+    if (this.snapTimer) {
+      clearTimeout(this.snapTimer);
+      this.snapTimer = null;
+    }
+
+    this.activePointerId = event.pointerId;
+    this.dragStartY = event.clientY;
+    this.dragStartTime = performance.now();
+    this.isSnappingBack.set(false);
+    this.isDragging.set(true);
+    this.dragOffsetY.set(0);
+
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore if pointer capture is unavailable
+    }
+  }
+
+  onSheetPointerMove(event: PointerEvent): void {
+    if (!this.isDragging() || event.pointerId !== this.activePointerId) return;
+
+    const rawDelta = event.clientY - this.dragStartY;
+    if (rawDelta >= 0) {
+      this.dragOffsetY.set(rawDelta);
+    } else {
+      // Subtle iOS rubber-band resistance when pulling upward
+      this.dragOffsetY.set(Math.max(-24, rawDelta * 0.18));
+    }
+  }
+
+  onSheetPointerUp(event: PointerEvent): void {
+    if (!this.isDragging() || event.pointerId !== this.activePointerId) return;
+
+    try {
+      (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    } catch {
+      // Ignore
+    }
+
+    const deltaY = event.clientY - this.dragStartY;
+    const elapsed = Math.max(1, performance.now() - this.dragStartTime);
+    const velocity = deltaY / elapsed; // px/ms
+
+    this.activePointerId = null;
+    this.isDragging.set(false);
+
+    const shouldClose = deltaY > 110 || (deltaY > 40 && velocity > 0.45);
+    if (shouldClose) {
+      this.requestClose();
+      // If user cancelled dirty confirmation, snap back smoothly
+      if (!this.isClosing) {
+        this.snapBack();
+      } else {
+        this.isDismissingByDrag.set(true);
+      }
+    } else {
+      this.snapBack();
+    }
+  }
+
+  private snapBack(): void {
+    this.isSnappingBack.set(true);
+    this.dragOffsetY.set(0);
+    if (this.snapTimer) {
+      clearTimeout(this.snapTimer);
+    }
+    this.snapTimer = setTimeout(() => {
+      this.isSnappingBack.set(false);
+      this.snapTimer = null;
+    }, 280);
+  }
 
   @Input()
   set isOpen(val: boolean) {
@@ -143,6 +275,10 @@ export class ModalComponent implements OnDestroy {
     }
     this._isOpen = true;
     this.isClosing = false;
+    this.isDragging.set(false);
+    this.isSnappingBack.set(false);
+    this.isDismissingByDrag.set(false);
+    this.dragOffsetY.set(0);
     this.isRendered = true;
   }
 
@@ -163,6 +299,8 @@ export class ModalComponent implements OnDestroy {
     this.closeTimer = setTimeout(() => {
       this.isClosing = false;
       this.isRendered = false;
+      this.isDismissingByDrag.set(false);
+      this.dragOffsetY.set(0);
       this._isOpen = false;
       this.closeTimer = null;
       if (emitChange) {
@@ -176,6 +314,10 @@ export class ModalComponent implements OnDestroy {
     if (this.closeTimer) {
       clearTimeout(this.closeTimer);
       this.closeTimer = null;
+    }
+    if (this.snapTimer) {
+      clearTimeout(this.snapTimer);
+      this.snapTimer = null;
     }
   }
 }
