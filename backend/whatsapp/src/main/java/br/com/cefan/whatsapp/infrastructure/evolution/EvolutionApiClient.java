@@ -3,6 +3,7 @@ package br.com.cefan.whatsapp.infrastructure.evolution;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.SendPollMessageRequest;
 import br.com.cefan.whatsapp.infrastructure.evolution.dto.SendTextMessageRequest;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,6 +20,7 @@ import java.util.Optional;
 public class EvolutionApiClient {
 
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String defaultInstance;
     private final boolean pollsEnabled;
@@ -27,7 +29,15 @@ public class EvolutionApiClient {
             String apiUrl,
             String apiKey,
             String defaultInstance) {
-        this(apiUrl, apiKey, defaultInstance, true);
+        this(apiUrl, apiKey, defaultInstance, true, new ObjectMapper());
+    }
+
+    public EvolutionApiClient(
+            String apiUrl,
+            String apiKey,
+            String defaultInstance,
+            boolean pollsEnabled) {
+        this(apiUrl, apiKey, defaultInstance, pollsEnabled, new ObjectMapper());
     }
 
     @Autowired
@@ -35,10 +45,12 @@ public class EvolutionApiClient {
             @Value("${evolution.api.url:http://localhost:8081}") String apiUrl,
             @Value("${evolution.api.key}") String apiKey,
             @Value("${evolution.api.instance-name:cefan-studio}") String defaultInstance,
-            @Value("${evolution.api.polls.enabled:true}") boolean pollsEnabled) {
+            @Value("${evolution.api.polls.enabled:true}") boolean pollsEnabled,
+            ObjectMapper objectMapper) {
         this.apiKey = apiKey;
         this.defaultInstance = defaultInstance;
         this.pollsEnabled = pollsEnabled;
+        this.objectMapper = (objectMapper != null) ? objectMapper : new ObjectMapper();
         this.restClient = RestClient.builder()
                 .baseUrl(apiUrl)
                 .defaultHeader("apikey", apiKey)
@@ -134,31 +146,35 @@ public class EvolutionApiClient {
                     .values(values)
                     .build();
 
-            JsonNode response = restClient.post()
+            String rawResponse = restClient.post()
                     .uri("/message/sendPoll/{instance}", targetInstance)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .body(JsonNode.class);
+                    .body(String.class);
 
-            if (response != null) {
-                if (response.has("key") && response.get("key").hasNonNull("id")) {
-                    String id = response.get("key").get("id").asText();
-                    if (!id.isBlank()) {
-                        return Optional.of(id);
+            if (rawResponse != null && !rawResponse.isBlank()) {
+                JsonNode response = objectMapper.readTree(rawResponse);
+                if (response != null) {
+                    if (response.has("key") && response.get("key").hasNonNull("id")) {
+                        String id = response.get("key").get("id").asText();
+                        if (!id.isBlank()) {
+                            return Optional.of(id);
+                        }
                     }
-                }
-                if (response.hasNonNull("id")) {
-                    String id = response.get("id").asText();
-                    if (!id.isBlank()) {
-                        return Optional.of(id);
+                    if (response.hasNonNull("id")) {
+                        String id = response.get("id").asText();
+                        if (!id.isBlank()) {
+                            return Optional.of(id);
+                        }
                     }
                 }
             }
-            log.warn("Evolution API enviou enquete para [{}], mas resposta não retornou key.id: {}", recipientNumber, response);
+            log.error("Evolution API enviou enquete para [{}], mas não foi possível extrair key.id da resposta (mantendo apenas o texto numerado): {}",
+                    recipientNumber, rawResponse);
         } catch (Exception e) {
-            log.warn("Falha ao enviar enquete via Evolution API para [{}] (fallback de texto permanece ativo): {}",
-                    recipientNumber, e.getMessage());
+            log.error("Falha ao enviar/ler resposta de enquete via Evolution API para [{}] (mantendo apenas o texto numerado): {}",
+                    recipientNumber, e.getMessage(), e);
         }
         return Optional.empty();
     }
@@ -189,32 +205,35 @@ public class EvolutionApiClient {
 
             log.info("Buscando base64 da mídia da mensagem [{}] na instância [{}]", messageId, targetInstance);
 
-            JsonNode response = restClient.post()
+            String rawResponse = restClient.post()
                     .uri("/chat/getBase64FromMediaMessage/{instance}", targetInstance)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
-                    .body(JsonNode.class);
+                    .body(String.class);
 
-            if (response != null) {
-                if (response.has("base64")) {
-                    JsonNode b64Node = response.get("base64");
-                    if (b64Node.isTextual()) {
-                        String base64 = b64Node.asText();
-                        if (base64 != null && !base64.isBlank()) {
-                            return Optional.of(base64);
-                        }
-                    } else if (b64Node.isObject() && b64Node.has("base64")) {
-                        String base64 = b64Node.get("base64").asText();
-                        if (base64 != null && !base64.isBlank()) {
-                            return Optional.of(base64);
+            if (rawResponse != null && !rawResponse.isBlank()) {
+                JsonNode response = objectMapper.readTree(rawResponse);
+                if (response != null) {
+                    if (response.has("base64")) {
+                        JsonNode b64Node = response.get("base64");
+                        if (b64Node.isTextual()) {
+                            String base64 = b64Node.asText();
+                            if (base64 != null && !base64.isBlank()) {
+                                return Optional.of(base64);
+                            }
+                        } else if (b64Node.isObject() && b64Node.has("base64")) {
+                            String base64 = b64Node.get("base64").asText();
+                            if (base64 != null && !base64.isBlank()) {
+                                return Optional.of(base64);
+                            }
                         }
                     }
-                }
-                if (response.has("data") && response.get("data").isTextual()) {
-                    String base64 = response.get("data").asText();
-                    if (base64 != null && !base64.isBlank()) {
-                        return Optional.of(base64);
+                    if (response.has("data") && response.get("data").isTextual()) {
+                        String base64 = response.get("data").asText();
+                        if (base64 != null && !base64.isBlank()) {
+                            return Optional.of(base64);
+                        }
                     }
                 }
             }
@@ -227,15 +246,18 @@ public class EvolutionApiClient {
     public boolean checkConnectionState(String instance) {
         String targetInstance = (instance != null && !instance.isBlank()) ? instance : defaultInstance;
         try {
-            JsonNode response = restClient.get()
+            String rawResponse = restClient.get()
                     .uri("/instance/connectionState/{instance}", targetInstance)
                     .retrieve()
-                    .body(JsonNode.class);
-            if (response != null) {
-                JsonNode stateNode = response.has("instance") ? response.get("instance").get("state") : response.get("state");
-                if (stateNode != null && stateNode.isTextual()) {
-                    String state = stateNode.asText().toLowerCase();
-                    return "open".equals(state) || "connected".equals(state);
+                    .body(String.class);
+            if (rawResponse != null && !rawResponse.isBlank()) {
+                JsonNode response = objectMapper.readTree(rawResponse);
+                if (response != null) {
+                    JsonNode stateNode = response.has("instance") ? response.get("instance").get("state") : response.get("state");
+                    if (stateNode != null && stateNode.isTextual()) {
+                        String state = stateNode.asText().toLowerCase();
+                        return "open".equals(state) || "connected".equals(state);
+                    }
                 }
             }
             return true;

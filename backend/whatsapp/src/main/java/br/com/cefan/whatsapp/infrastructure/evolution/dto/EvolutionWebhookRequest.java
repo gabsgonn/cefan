@@ -1,18 +1,11 @@
 package br.com.cefan.whatsapp.infrastructure.evolution.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.Data;
 
-import java.io.IOException;
 import java.util.Map;
 
 @Data
@@ -68,54 +61,6 @@ public class EvolutionWebhookRequest {
 
     public String getInstance() {
         return instance != null ? instance.toString() : null;
-    }
-
-    public static class WebhookDataDeserializer extends JsonDeserializer<WebhookData> {
-        @Override
-        public WebhookData deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-            if (node == null || node.isNull()) {
-                return null;
-            }
-            JsonNode targetNode = node;
-            if (node.isArray()) {
-                if (node.isEmpty()) {
-                    return null;
-                }
-                targetNode = node.get(0);
-            }
-            if (targetNode != null && targetNode.isObject()) {
-                try {
-                    return INTERNAL_MAPPER.treeToValue(targetNode, WebhookData.class);
-                } catch (Exception e) {
-                    return null;
-                }
-            }
-            return null;
-        }
-    }
-
-    public static class MessageContentDeserializer extends JsonDeserializer<MessageContent> {
-        @Override
-        public MessageContent deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            JsonNode node = p.getCodec().readTree(p);
-            if (node == null || node.isNull()) {
-                return null;
-            }
-            if (node.isTextual()) {
-                MessageContent content = new MessageContent();
-                content.setConversation(node.asText());
-                return content;
-            }
-            if (node.isObject()) {
-                try {
-                    return INTERNAL_MAPPER.treeToValue(node, MessageContent.class);
-                } catch (Exception e) {
-                    return null;
-                }
-            }
-            return null;
-        }
     }
 
     @Data
