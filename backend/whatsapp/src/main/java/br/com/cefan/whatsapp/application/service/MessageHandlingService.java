@@ -74,21 +74,33 @@ public class MessageHandlingService {
     /**
      * Trata eventos messages.update da Evolution API (votos em enquetes já decifrados pela Evolution 2.3.x).
      * Nota: não descarta fromMe=true aqui, pois a enquete original foi enviada pelo próprio bot.
+     * Também não usa o remoteJid/sender do votante (que pode vir como @lid) para identificar o cliente —
+     * o cliente é sempre identificado pela sessão salva na enquete (whatsapp_polls).
      */
     @Transactional
     public void handleMessageUpdate(EvolutionWebhookRequest webhook) {
-        if (webhook == null || !webhook.hasPollUpdates()) {
+        if (webhook == null) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=NULL_WEBHOOK, pollId=null, sessionState=N/A, expectedState=N/A]");
             return;
         }
 
         String pollMessageId = webhook.extractPollUpdateKeyId();
+        if (!webhook.hasPollUpdates()) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=NO_POLL_UPDATES, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
+            return;
+        }
+
+        if (pollMessageId == null || pollMessageId.isBlank()) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=MISSING_POLL_ID, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
+            return;
+        }
+
         java.util.OptionalInt votedIndexOpt = webhook.extractVotedPollOptionIndex();
-
-        log.info("Update de enquete recebido: pollMessageId=[{}], votedIndex=[{}], remoteJid=[{}]",
-                pollMessageId, votedIndexOpt.isPresent() ? votedIndexOpt.getAsInt() : "vazio", webhook.extractSenderPhone());
-
-        if (pollMessageId == null || pollMessageId.isBlank() || votedIndexOpt.isEmpty()) {
-            log.debug("Voto vazio/desmarcado ou sem keyId na enquete [{}]. Ignorando.", pollMessageId);
+        if (votedIndexOpt.isEmpty()) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=EMPTY_VOTE, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
             return;
         }
 

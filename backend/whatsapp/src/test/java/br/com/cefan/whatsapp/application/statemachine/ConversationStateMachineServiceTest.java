@@ -433,4 +433,97 @@ class ConversationStateMachineServiceTest {
         verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), eq("000201SLOT3OK"));
         verify(evolutionApiClient, never()).sendTextMessage(anyString(), anyString(), contains("Bem-vindo ao *Vício Tattoo*"));
     }
+
+    @Test
+    void shouldIdentifyCustomerByPollSessionOnMessagesUpdateEvenWhenVoterIsLid() throws Exception {
+        br.com.cefan.whatsapp.domain.repository.WhatsAppPollRepository pollRepository =
+                mock(br.com.cefan.whatsapp.domain.repository.WhatsAppPollRepository.class);
+        br.com.cefan.whatsapp.domain.repository.CustomerRepository customerRepository =
+                mock(br.com.cefan.whatsapp.domain.repository.CustomerRepository.class);
+
+        br.com.cefan.whatsapp.application.service.WhatsAppPollService realPollService =
+                new br.com.cefan.whatsapp.application.service.WhatsAppPollService(evolutionApiClient, pollRepository, objectMapper);
+
+        ConversationStateMachineService smWithPolls = new ConversationStateMachineService(
+                sessionRepository, menuStateHandler, chatService, new UserIntentNormalizer(), realPollService,
+                List.of(
+                        menuStateHandler,
+                        new OrcamentoStateHandler(evolutionApiClient, geminiVisionClient, tenantConfigRepository, objectMapper, chatService),
+                        new AgendamentoStateHandler(evolutionApiClient, appointmentRepository, paymentClient, objectMapper, chatService, tenantConfigRepository, userRepository),
+                        new TransbordoHumanoStateHandler()
+                )
+        );
+        br.com.cefan.whatsapp.application.service.MessageHandlingService messageHandlingService =
+                new br.com.cefan.whatsapp.application.service.MessageHandlingService(customerRepository, smWithPolls);
+
+        ConversationSession session = ConversationSession.builder()
+                .id(UUID.randomUUID())
+                .customer(customer)
+                .currentState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO)
+                .contextData("{\"style\":\"Fineline\",\"estimatedHours\":2.0}")
+                .lastInteractionAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE))
+                .build();
+
+        String optionsJson = objectMapper.writeValueAsString(List.of(
+                new br.com.cefan.whatsapp.application.service.WhatsAppPollService.PollOption(0, "Agendar sessão", UserIntent.AGENDAR),
+                new br.com.cefan.whatsapp.application.service.WhatsAppPollService.PollOption(1, "Falar com o tatuador", UserIntent.FALAR_TATUADOR),
+                new br.com.cefan.whatsapp.application.service.WhatsAppPollService.PollOption(2, "Voltar ao menu", UserIntent.VOLTAR)
+        ));
+
+        br.com.cefan.whatsapp.domain.model.WhatsAppPoll poll = br.com.cefan.whatsapp.domain.model.WhatsAppPoll.builder()
+                .id(UUID.randomUUID())
+                .pollMessageId("3EB0POLL_LID_001")
+                .session(session)
+                .customer(customer)
+                .expectedState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO)
+                .optionsJson(optionsJson)
+                .active(true)
+                .build();
+
+        when(pollRepository.findByPollMessageIdForUpdate("3EB0POLL_LID_001")).thenReturn(Optional.of(poll));
+        when(pollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(sessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // 1. Evento messages.update sem pollUpdates (ex: DELIVERY_ACK) -> ignorado com log estruturado POLL_UPDATE
+        String deliveryAckJson = """
+                {
+                  "event": "messages.update",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "keyId": "3EB0POLL_LID_001",
+                    "remoteJid": "998877665544@lid",
+                    "fromMe": true,
+                    "status": "DELIVERY_ACK"
+                  }
+                }
+                """;
+        messageHandlingService.handleMessageUpdate(objectMapper.readValue(deliveryAckJson, EvolutionWebhookRequest.class));
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, session.getCurrentState());
+
+        // 2. Evento messages.update com voto vindo de @lid -> identifica cliente pelo poll.getSession().getCustomer() (5511999999999)
+        String lidVoteJson = """
+                {
+                  "event": "messages.update",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "keyId": "3EB0POLL_LID_001",
+                    "remoteJid": "998877665544@lid",
+                    "fromMe": true,
+                    "status": "SERVER_ACK",
+                    "pollUpdates": [
+                      { "name": "Agendar sessão", "voters": [] },
+                      { "name": "Falar com o tatuador", "voters": ["998877665544@lid"] },
+                      { "name": "Voltar ao menu", "voters": [] }
+                    ]
+                  }
+                }
+                """;
+        messageHandlingService.handleMessageUpdate(objectMapper.readValue(lidVoteJson, EvolutionWebhookRequest.class));
+
+        // Jamais buscou ou criou cliente pelo @lid no CustomerRepository
+        verifyNoInteractions(customerRepository);
+        // Transicionou a sessão do cliente original (5511999999999) para TRANSBORDO_HUMANO e enviou resposta para o telefone real dele
+        assertEquals(ConversationState.TRANSBORDO_HUMANO, session.getCurrentState());
+        verify(evolutionApiClient).sendTextMessage(eq("cefan-studio"), eq("5511999999999"), contains("tatuadores"));
+    }
 }

@@ -166,4 +166,60 @@ class WhatsAppPollServiceTest {
         assertTrue(emptyReq.hasPollUpdates());
         assertEquals(OptionalInt.empty(), emptyReq.extractVotedPollOptionIndex());
     }
+
+    @Test
+    void shouldIdentifyCustomerFromPollSessionEvenWhenVoterArrivesAsLidAndReturnEmptyWhenPersistenceFails() throws Exception {
+        // 1. Quando a gravação falha após o envio, sendAndTrackPoll loga ERROR e retorna Optional.empty() sem quebrar o fluxo
+        when(evolutionApiClient.sendPollMessage(eq("cefan-studio"), eq("5541999999999"), anyString(), anyList(), eq(1)))
+                .thenReturn(Optional.of("POLL-DB-ERR"));
+        when(pollRepository.save(any(WhatsAppPoll.class))).thenThrow(new RuntimeException("Erro simulado de banco"));
+
+        List<WhatsAppPollService.PollOption> options = List.of(
+                new WhatsAppPollService.PollOption(0, "Agendar sessão", UserIntent.AGENDAR)
+        );
+        Optional<WhatsAppPoll> failedTrack = pollService.sendAndTrackPoll(
+                "cefan-studio", customer, session, ConversationState.ORCAMENTO_AGUARDANDO_FOTO, "Escolha:", options);
+        assertTrue(failedTrack.isEmpty());
+
+        // 2. Voto chega com @lid no remoteJid e em voters, mas o cliente é identificado pela sessão salva na enquete
+        String lidVotePayload = """
+                {
+                  "event": "messages.update",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "keyId": "3EB0LIDPOLL777",
+                    "remoteJid": "19283746554123@lid",
+                    "fromMe": true,
+                    "status": "SERVER_ACK",
+                    "pollUpdates": [
+                      { "name": "Agendar sessão", "voters": ["19283746554123@lid"] },
+                      { "name": "Falar com o tatuador", "voters": [] },
+                      { "name": "Voltar ao menu", "voters": [] }
+                    ]
+                  }
+                }
+                """;
+        EvolutionWebhookRequest lidWebhook = objectMapper.readValue(lidVotePayload, EvolutionWebhookRequest.class);
+        assertEquals("3EB0LIDPOLL777", lidWebhook.extractPollUpdateKeyId());
+        assertEquals(OptionalInt.of(0), lidWebhook.extractVotedPollOptionIndex());
+
+        WhatsAppPoll savedPoll = WhatsAppPoll.builder()
+                .pollMessageId("3EB0LIDPOLL777")
+                .session(session)
+                .customer(customer)
+                .expectedState(ConversationState.ORCAMENTO_AGUARDANDO_FOTO)
+                .optionsJson(objectMapper.writeValueAsString(options))
+                .active(true)
+                .build();
+        when(pollRepository.findByPollMessageIdForUpdate("3EB0LIDPOLL777")).thenReturn(Optional.of(savedPoll));
+        when(pollRepository.save(any(WhatsAppPoll.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Optional<WhatsAppPollService.ResolvedPollVote> resolved = pollService.resolveAndConsumeVote(
+                lidWebhook.extractPollUpdateKeyId(), lidWebhook.extractVotedPollOptionIndex().getAsInt());
+
+        assertTrue(resolved.isPresent());
+        assertEquals(customer.getId(), resolved.get().poll().getSession().getCustomer().getId());
+        assertEquals("5541999999999", resolved.get().poll().getSession().getCustomer().getPhone());
+        assertEquals(UserIntent.AGENDAR, resolved.get().intent());
+    }
 }

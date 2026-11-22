@@ -29,7 +29,9 @@ import java.util.Map;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -66,6 +68,9 @@ class HomologacaoPilotoE2ETest {
 
     @Autowired
     private TenantConfigRepository tenantConfigRepository;
+
+    @Autowired
+    private WhatsAppPollRepository whatsAppPollRepository;
 
     @Autowired
     private javax.sql.DataSource dataSource;
@@ -740,7 +745,70 @@ class HomologacaoPilotoE2ETest {
                 .findFirst()
                 .orElseThrow();
         assertTrue(pixSummaryMsg.getContent().contains("Sinal de Reserva:"));
-        assertFalse(pixSummaryMsg.getContent().contains("Saldo Restante:"),
+        assertFalse(pixSummaryMsg.getContent().contains("Saldo Restante"),
                 "Quando orcamentoShowPrice=false, a mensagem de pré-agendamento/PIX não deve exibir o Saldo Restante para não revelar o total");
+
+        // 4. Fluxo real de Enquete (sendPoll -> whatsapp_polls -> messages.update com @lid -> transição por índice)
+        when(evolutionApiClient.sendPollMessage(anyString(), eq("5541955554444"), anyString(), any(), anyInt()))
+                .thenReturn(java.util.Optional.of("3EB0E2EPOLL999"));
+
+        String webhookMenuPoll = """
+                {
+                  "event": "messages.upsert",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "key": {
+                      "remoteJid": "5541955554444@s.whatsapp.net",
+                      "fromMe": false,
+                      "id": "WAMID-MENU-POLL-001"
+                    },
+                    "pushName": "Marina Poll",
+                    "message": {
+                      "conversation": "oi"
+                    }
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookMenuPoll))
+                .andExpect(status().isOk());
+
+        Customer marina = customerRepository.findByPhone("5541955554444").orElseThrow();
+        WhatsAppPoll savedMenuPoll = whatsAppPollRepository.findByPollMessageId("3EB0E2EPOLL999").orElseThrow();
+        assertTrue(savedMenuPoll.getActive());
+        assertEquals(ConversationState.MENU, savedMenuPoll.getExpectedState());
+        assertEquals(marina.getId(), savedMenuPoll.getCustomer().getId());
+
+        // Cliente vota na opção 0 ("Fazer orçamento") e a Evolution envia messages.update com votante @lid
+        String webhookPollVoteLid = """
+                {
+                  "event": "messages.update",
+                  "instance": "cefan-studio",
+                  "data": {
+                    "keyId": "3EB0E2EPOLL999",
+                    "remoteJid": "11223344556677@lid",
+                    "fromMe": true,
+                    "status": "SERVER_ACK",
+                    "pollUpdates": [
+                      { "name": "Fazer orçamento", "voters": ["11223344556677@lid"] },
+                      { "name": "Agendar sessão", "voters": [] },
+                      { "name": "Falar com o tatuador", "voters": [] },
+                      { "name": "Nossos artistas e portfólio", "voters": [] }
+                    ]
+                  }
+                }
+                """;
+        mockMvc.perform(post("/api/v1/webhooks/evolution")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookPollVoteLid))
+                .andExpect(status().isOk());
+
+        ConversationSession marinaSession = sessionRepository.findByCustomer(marina).orElseThrow();
+        assertEquals(ConversationState.ORCAMENTO_AGUARDANDO_FOTO, marinaSession.getCurrentState(),
+                "O voto via messages.update (mesmo com @lid) deve identificar a cliente pela sessão da enquete e avançar o estado");
+        WhatsAppPoll consumedPoll = whatsAppPollRepository.findByPollMessageId("3EB0E2EPOLL999").orElseThrow();
+        assertFalse(consumedPoll.getActive());
+        assertEquals(0, consumedPoll.getVotedOptionIndex());
     }
 }

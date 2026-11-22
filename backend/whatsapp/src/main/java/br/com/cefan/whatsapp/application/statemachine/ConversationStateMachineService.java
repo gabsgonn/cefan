@@ -141,17 +141,21 @@ public class ConversationStateMachineService {
 
     /**
      * Processa um voto em enquete (sendPoll) já mapeado por ÍNDICE para {@link UserIntent}.
+     * Identifica o cliente pela sessão salva na enquete (e nunca pelo votante do webhook, que pode vir como @lid).
      * Reutiliza exatamente o mesmo despacho de intenções do fluxo de texto.
      */
     @Transactional
     public void processPollVote(String pollMessageId, int votedIndex, EvolutionWebhookRequest webhook) {
         if (pollService == null) {
-            log.debug("WhatsAppPollService não configurado. Ignorando voto na enquete [{}].", pollMessageId);
+            log.warn("POLL_UPDATE [action=IGNORED, reason=POLL_SERVICE_NOT_CONFIGURED, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
             return;
         }
         pollService.resolveAndConsumeVote(pollMessageId, votedIndex).ifPresent(resolved -> {
             ConversationSession session = resolved.poll().getSession();
-            Customer customer = resolved.poll().getCustomer();
+            Customer customer = (session != null && session.getCustomer() != null)
+                    ? session.getCustomer()
+                    : resolved.poll().getCustomer();
             String label = resolved.label();
             UserIntent intent = resolved.intent();
 

@@ -50,6 +50,10 @@ public class WhatsAppPollService {
             List<PollOption> options) {
 
         if (customer == null || session == null || session.getId() == null || options == null || options.isEmpty()) {
+            log.error("Falha ao enviar/gravar enquete: dados obrigatórios ausentes (customer={}, session={}, optionsSize={}).",
+                    customer != null ? customer.getPhone() : "null",
+                    session != null ? session.getId() : "null",
+                    options != null ? options.size() : 0);
             return Optional.empty();
         }
 
@@ -58,6 +62,8 @@ public class WhatsAppPollService {
                 instance, customer.getPhone(), title, values, 1);
 
         if (pollIdOpt.isEmpty() || pollIdOpt.get().isBlank()) {
+            log.error("Falha ao obter ID da enquete enviada para cliente [{}] no estado [{}] (mantendo apenas o texto numerado).",
+                    customer.getPhone(), expectedState);
             return Optional.empty();
         }
 
@@ -76,19 +82,27 @@ public class WhatsAppPollService {
                     .build());
             return Optional.of(saved);
         } catch (Exception e) {
-            log.warn("Erro ao persistir enquete [{}] para cliente [{}]: {}", pollMessageId, customer.getPhone(), e.getMessage());
+            log.error("Erro ao persistir enquete [{}] após envio para cliente [{}]: {}",
+                    pollMessageId, customer.getPhone(), e.getMessage(), e);
             return Optional.empty();
         }
     }
 
     /**
      * Resolve e consome um voto de enquete de forma idempotente e por ÍNDICE (não pelo texto).
-     * Ignora enquetes desconhecidas, antigas (inativas ou de outro estado), votos fora de faixa
-     * e reenvios (quando votedOptionIndex já foi preenchido).
+     * Identifica o cliente exclusivamente pela sessão/cliente salvos na enquete (e nunca pelo JID/LID do votante).
+     * Emite log estruturado POLL_UPDATE em todos os caminhos (PROCESSED ou IGNORED).
      */
     @Transactional
     public Optional<ResolvedPollVote> resolveAndConsumeVote(String pollMessageId, int votedIndex) {
-        if (pollMessageId == null || pollMessageId.isBlank() || votedIndex < 0) {
+        if (pollMessageId == null || pollMessageId.isBlank()) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=MISSING_POLL_ID, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
+            return Optional.empty();
+        }
+        if (votedIndex < 0) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=INVALID_VOTE_INDEX, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
             return Optional.empty();
         }
 
@@ -97,27 +111,36 @@ public class WhatsAppPollService {
                 .orElse(null);
 
         if (poll == null) {
-            log.debug("Enquete [{}] não encontrada na base. Ignorando voto.", pollMessageId);
-            return Optional.empty();
-        }
-
-        if (poll.getVotedOptionIndex() != null) {
-            log.info("Voto na enquete [{}] já foi processado anteriormente (índice {}). Ignorando reenvio.",
-                    pollMessageId, poll.getVotedOptionIndex());
-            return Optional.empty();
-        }
-
-        if (!Boolean.TRUE.equals(poll.getActive())) {
-            log.info("Enquete [{}] está inativa (enquete antiga). Ignorando voto.", pollMessageId);
+            log.info("POLL_UPDATE [action=IGNORED, reason=POLL_NOT_FOUND, pollId={}, sessionState=N/A, expectedState=N/A]",
+                    pollMessageId);
             return Optional.empty();
         }
 
         ConversationSession session = poll.getSession();
+        String sessionStateStr = (session != null && session.getCurrentState() != null)
+                ? session.getCurrentState().name()
+                : "NULL";
+        String expectedStateStr = (poll.getExpectedState() != null)
+                ? poll.getExpectedState().name()
+                : "NULL";
+
+        if (poll.getVotedOptionIndex() != null) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=ALREADY_VOTED, pollId={}, sessionState={}, expectedState={}]",
+                    pollMessageId, sessionStateStr, expectedStateStr);
+            return Optional.empty();
+        }
+
+        if (!Boolean.TRUE.equals(poll.getActive())) {
+            log.info("POLL_UPDATE [action=IGNORED, reason=INACTIVE_POLL, pollId={}, sessionState={}, expectedState={}]",
+                    pollMessageId, sessionStateStr, expectedStateStr);
+            return Optional.empty();
+        }
+
         if (session == null || session.getCurrentState() != poll.getExpectedState()) {
-            log.info("Enquete [{}] esperava estado [{}], mas sessão está em [{}]. Desativando e ignorando voto.",
-                    pollMessageId, poll.getExpectedState(), session != null ? session.getCurrentState() : "null");
             poll.setActive(false);
             pollRepository.save(poll);
+            log.info("POLL_UPDATE [action=IGNORED, reason=STATE_MISMATCH, pollId={}, sessionState={}, expectedState={}]",
+                    pollMessageId, sessionStateStr, expectedStateStr);
             return Optional.empty();
         }
 
@@ -128,7 +151,8 @@ public class WhatsAppPollService {
                 .orElse(null);
 
         if (matched == null || matched.intent() == null) {
-            log.warn("Índice de voto [{}] não existe nas opções da enquete [{}]. Ignorando.", votedIndex, pollMessageId);
+            log.warn("POLL_UPDATE [action=IGNORED, reason=OPTION_OUT_OF_RANGE, pollId={}, sessionState={}, expectedState={}]",
+                    pollMessageId, sessionStateStr, expectedStateStr);
             return Optional.empty();
         }
 
@@ -136,6 +160,9 @@ public class WhatsAppPollService {
         poll.setVotedAt(OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
         poll.setActive(false);
         pollRepository.save(poll);
+
+        log.info("POLL_UPDATE [action=PROCESSED, reason=OK, pollId={}, sessionState={}, expectedState={}]",
+                pollMessageId, sessionStateStr, expectedStateStr);
 
         return Optional.of(new ResolvedPollVote(poll, matched.intent(), matched.label(), votedIndex));
     }
