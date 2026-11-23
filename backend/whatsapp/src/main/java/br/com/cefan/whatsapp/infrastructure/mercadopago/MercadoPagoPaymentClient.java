@@ -71,9 +71,13 @@ public class MercadoPagoPaymentClient {
         }
 
         try {
-            String expirationIso = (expirationDate != null)
-                    ? expirationDate.atZoneSameInstant(AgendamentoStateHandler.STUDIO_ZONE).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-                    : OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).plusHours(2).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            DateTimeFormatter mpFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
+            OffsetDateTime effectiveExpiration = (expirationDate != null)
+                    ? expirationDate
+                    : OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE).plusHours(2);
+            String expirationIso = effectiveExpiration
+                    .atZoneSameInstant(AgendamentoStateHandler.STUDIO_ZONE)
+                    .format(mpFormatter);
 
             String email = (payerEmail != null && !payerEmail.isBlank())
                     ? payerEmail
