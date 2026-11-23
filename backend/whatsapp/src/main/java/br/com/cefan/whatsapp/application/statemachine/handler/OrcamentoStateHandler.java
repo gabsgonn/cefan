@@ -296,7 +296,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
         String customTemplate = (tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
                 ? tenantConfig.getHumanTransferMessage()
                 : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes.";
-        String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
+        String absenceNotice = AgendamentoStateHandler.buildHandoffOutsideHoursNotice(tenantConfig);
         String reply = String.format(
                 "Entendido, %s! 👨‍🎨\n\n" +
                 "%s%s\n\n" +
@@ -330,7 +330,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
             String artistName = (session.getAssignedArtistName() != null && !session.getAssignedArtistName().isBlank())
                     ? session.getAssignedArtistName()
                     : "nossa equipe especialista";
-            String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
+            String absenceNotice = AgendamentoStateHandler.buildHandoffOutsideHoursNotice(tenantConfig);
             String reply = String.format(
                     "🎨 *Sessão Especial (%dh) — Atendimento Personalizado* 🎨\n\n" +
                     "Olá, %s! Como o tempo estimado da sua sessão (*%dh*) ultrapassa nosso expediente diário (*%s às %s*), encaminhei sua conversa diretamente para *%s* organizar a melhor divisão de sessões e horários com você!%s\n\n" +
@@ -504,7 +504,7 @@ public class OrcamentoStateHandler implements ConversationStateHandler {
 
         saveContextData(session, analysis, null, null, null, referenceImageUrl, true, "A combinar");
 
-        String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(tenantConfig);
+        String absenceNotice = AgendamentoStateHandler.buildHandoffOutsideHoursNotice(tenantConfig);
         String customerDesc = (analysis.getCustomerDescription() != null && !analysis.getCustomerDescription().isBlank())
                 ? analysis.getCustomerDescription().trim()
                 : "Projeto amplo de fechamento com avaliação anatômica, encaixe e planejamento de sessões diretamente com o especialista.";

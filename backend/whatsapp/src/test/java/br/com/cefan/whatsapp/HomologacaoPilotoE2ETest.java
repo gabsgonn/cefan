@@ -461,7 +461,7 @@ class HomologacaoPilotoE2ETest {
         mockMvc.perform(get("/api/v1/conversations/" + session.getId() + "/messages")
                         .header("Authorization", "Bearer " + marianaToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].content", hasItem(containsString("Estúdio fora de expediente"))));
+                .andExpect(jsonPath("$[*].content", hasItem(containsString("Nossa equipe responderá por aqui no próximo expediente"))));
 
         mockMvc.perform(get("/api/v1/notifications")
                         .header("Authorization", "Bearer " + ownerToken))

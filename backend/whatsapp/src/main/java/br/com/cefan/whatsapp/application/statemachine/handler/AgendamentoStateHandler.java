@@ -267,7 +267,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             session.setCurrentState(ConversationState.TRANSBORDO_HUMANO);
             updateContextForFechamento(session, artistName);
 
-            String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig, now());
+            String absenceNotice = buildHandoffOutsideHoursNotice(tenantConfig, now());
             String reply = String.format(
                     "🎨 *Projeto de Fechamento - Valor A Combinar* 🎨\n\n" +
                     "Olá, %s! Como projetos de *Fechamento (%s)* têm valor *A combinar* de acordo com a anatomia e sessões, encaminhamos sua conversa diretamente para o nosso tatuador especialista *%s*, que já vai alinhar os horários e detalhes com você por aqui!%s\n\n" +
@@ -790,7 +790,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         String artistName = (artist != null) ? artist.getName() : "nossa equipe";
         String slotLabel = scheduledStart.format(DATE_ONLY_FORMATTER) + " às " + scheduledStart.format(TIME_ONLY_FORMATTER);
-        String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig, now());
+        String absenceNotice = buildHandoffOutsideHoursNotice(tenantConfig, now());
 
         String reply = String.format(
                 "⚠️ Ops, %s! Tivemos uma instabilidade temporária ao gerar o código PIX para o seu sinal.\n\n" +
@@ -834,7 +834,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         LocalTime openTime = resolveOpeningTime(tenantConfig);
         LocalTime closeTime = resolveClosingTime(tenantConfig);
-        String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig, now());
+        String absenceNotice = buildHandoffOutsideHoursNotice(tenantConfig, now());
 
         String reply = String.format(
                 "🎨 *Sessão Especial (%dh) — Atendimento Personalizado* 🎨\n\n" +
@@ -1811,6 +1811,34 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
         return current.isBefore(openTime) || current.isAfter(closeTime);
     }
 
+    private static final java.util.Map<UUID, LocalDate> ABSENCE_NOTICE_SENT_BY_SESSION = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static String buildAbsenceNoticeOncePerDay(ConversationSession session, TenantConfig config) {
+        String notice = buildAbsenceNoticeIfOutsideHours(config, OffsetDateTime.now(STUDIO_ZONE));
+        if (notice.isEmpty() || session == null || session.getId() == null) {
+            return notice;
+        }
+        LocalDate today = LocalDate.now(STUDIO_ZONE);
+        LocalDate lastSent = ABSENCE_NOTICE_SENT_BY_SESSION.put(session.getId(), today);
+        return today.equals(lastSent) ? "" : notice;
+    }
+
+    public static String buildHandoffOutsideHoursNotice(TenantConfig config) {
+        return buildHandoffOutsideHoursNotice(config, OffsetDateTime.now(STUDIO_ZONE));
+    }
+
+    static String buildHandoffOutsideHoursNotice(TenantConfig config, OffsetDateTime referenceNow) {
+        if (!isOutsideOperatingHours(referenceNow, config)) {
+            return "";
+        }
+        return String.format(
+                "\n\n🕐 _Estamos fora do horário de atendimento no momento. Nossa equipe responderá por aqui no próximo expediente (%s, das %s às %s)._",
+                formatWorkingDaysLabel(config),
+                resolveOpeningTime(config),
+                resolveClosingTime(config)
+        );
+    }
+
     public static String buildAbsenceNoticeIfOutsideHours(TenantConfig config) {
         return buildAbsenceNoticeIfOutsideHours(config, OffsetDateTime.now(STUDIO_ZONE));
     }
@@ -1820,7 +1848,10 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             return "";
         }
         if (isOutsideOperatingHours(referenceNow, config)) {
-            return "\n\n" + config.getAbsenceMessage().trim();
+            String normalizedDays = formatWorkingDaysLabel(config);
+            String msg = config.getAbsenceMessage().trim()
+                    .replaceAll("(?i)Segunda a (Sábado|Sabado|Sexta|Domingo)", normalizedDays);
+            return "\n\n" + msg;
         }
         return "";
     }
@@ -1857,7 +1888,7 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
                 : ((tenantConfig != null && tenantConfig.getHumanTransferMessage() != null && !tenantConfig.getHumanTransferMessage().isBlank())
                         ? tenantConfig.getHumanTransferMessage()
                         : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!");
-        String absenceNotice = buildAbsenceNoticeIfOutsideHours(tenantConfig, now());
+        String absenceNotice = buildHandoffOutsideHoursNotice(tenantConfig, now());
         String reply = (customReplyOverride != null && !customReplyOverride.isBlank())
                 ? String.format("%s%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._", customTemplate, absenceNotice)
                 : String.format("Entendido, %s! 👨‍🎨\n\n%s%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",

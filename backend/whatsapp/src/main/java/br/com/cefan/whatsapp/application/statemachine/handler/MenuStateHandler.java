@@ -122,7 +122,7 @@ public class MenuStateHandler implements ConversationStateHandler {
                 String customTemplate = (config != null && config.getHumanTransferMessage() != null && !config.getHumanTransferMessage().isBlank())
                         ? config.getHumanTransferMessage()
                         : "Notifiquei nossa equipe e um dos nossos tatuadores irá te responder diretamente por aqui em instantes. Aguarde só um momento!";
-                String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(config);
+                String absenceNotice = AgendamentoStateHandler.buildHandoffOutsideHoursNotice(config);
 
                 String reply = String.format("Entendido, %s! 👨‍🎨\n\n%s%s\n\n💡 _Se quiser reiniciar o assistente automático, basta enviar 0 a qualquer momento._",
                         customer.getName(), customTemplate, absenceNotice);
@@ -202,37 +202,54 @@ public class MenuStateHandler implements ConversationStateHandler {
 
     public void sendWelcomeMenu(Customer customer, ConversationSession session, String instance) {
         TenantConfig config = tenantConfigRepository.findAll().stream().findFirst().orElse(null);
-        String baseMenu = (config != null && config.getWelcomeMessage() != null && !config.getWelcomeMessage().isBlank())
+        String absenceNotice = AgendamentoStateHandler.buildAbsenceNoticeOncePerDay(session, config);
+        String studioName = (config != null && config.getStudioName() != null && !config.getStudioName().isBlank())
+                ? config.getStudioName().trim()
+                : "Vício Tattoo";
+
+        String fullFallbackMenu = (config != null && config.getWelcomeMessage() != null && !config.getWelcomeMessage().isBlank())
                 ? config.getWelcomeMessage()
                 : String.format(
-                "Olá, %s! 🎨 Bem-vindo ao *Vício Tattoo*!\n\n" +
+                "Olá, %s! 🎨 Bem-vindo ao *%s*!\n\n" +
                 "Como posso te ajudar hoje?\n\n" +
                 "1️⃣ - *Fazer Orçamento* (com foto de referência)\n" +
                 "2️⃣ - *Agendar Sessão*\n" +
-                "3️⃣ - *Falar com o Tatuador* (Atendimento Humano)\n\n" +
+                "3️⃣ - *Falar com o Tatuador* (Atendimento Humano)\n" +
+                "4️⃣ - *Nossos Artistas e Portfólio*\n\n" +
                 "👉 _Digite o número da opção desejada._",
-                customer.getName()
+                customer.getName(),
+                studioName
         );
-        String menu = baseMenu + AgendamentoStateHandler.buildAbsenceNoticeIfOutsideHours(config);
 
+        if (session != null && pollService != null) {
+            String greetingOnly = String.format("Olá, %s! 🎨 Bem-vindo ao *%s*!%s", customer.getName(), studioName, absenceNotice);
+            evolutionApiClient.sendTextMessage(instance, customer.getPhone(), greetingOnly);
+            chatService.recordBotMessage(session, customer, greetingOnly);
+
+            var sentPoll = pollService.sendAndTrackPoll(
+                    instance,
+                    customer,
+                    session,
+                    ConversationState.MENU,
+                    "Como posso te ajudar hoje? (ou digite 1, 2, 3 ou 4)",
+                    List.of(
+                            new WhatsAppPollService.PollOption(0, "Fazer orçamento", UserIntent.ORCAMENTO),
+                            new WhatsAppPollService.PollOption(1, "Agendar sessão", UserIntent.AGENDAR),
+                            new WhatsAppPollService.PollOption(2, "Falar com o tatuador", UserIntent.FALAR_TATUADOR),
+                            new WhatsAppPollService.PollOption(3, "Nossos artistas e portfólio", UserIntent.VER_ARTISTAS)
+                    )
+            );
+            if (sentPoll.isEmpty()) {
+                evolutionApiClient.sendTextMessage(instance, customer.getPhone(), fullFallbackMenu);
+                chatService.recordBotMessage(session, customer, fullFallbackMenu);
+            }
+            return;
+        }
+
+        String menu = fullFallbackMenu + absenceNotice;
         evolutionApiClient.sendTextMessage(instance, customer.getPhone(), menu);
         if (session != null) {
             chatService.recordBotMessage(session, customer, menu);
-            if (pollService != null) {
-                pollService.sendAndTrackPoll(
-                        instance,
-                        customer,
-                        session,
-                        ConversationState.MENU,
-                        "Como posso te ajudar hoje? (ou digite o número acima)",
-                        List.of(
-                                new WhatsAppPollService.PollOption(0, "Fazer orçamento", UserIntent.ORCAMENTO),
-                                new WhatsAppPollService.PollOption(1, "Agendar sessão", UserIntent.AGENDAR),
-                                new WhatsAppPollService.PollOption(2, "Falar com o tatuador", UserIntent.FALAR_TATUADOR),
-                                new WhatsAppPollService.PollOption(3, "Nossos artistas e portfólio", UserIntent.VER_ARTISTAS)
-                        )
-                );
-            }
         }
     }
 
