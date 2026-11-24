@@ -62,8 +62,7 @@ public class InfinitePayRedirectController {
                 <head>
                   <meta charset="UTF-8" />
                   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                  <meta http-equiv="refresh" content="1;url=%s" />
-                  <title>Vício Tattoo CWB — Redirecionando para o WhatsApp</title>
+                  <title>Vício Tattoo CWB — Pagamento Recebido</title>
                   <style>
                     body { font-family: system-ui, sans-serif; background: #111; color: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
                     .card { background: #1c1c1e; border-radius: 16px; padding: 32px; max-width: 420px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.4); }
@@ -71,17 +70,16 @@ public class InfinitePayRedirectController {
                     p { color: #b5b5bd; line-height: 1.5; margin-bottom: 24px; }
                     a.btn { display: inline-block; background: #25D366; color: #081c0f; font-weight: 700; text-decoration: none; padding: 12px 24px; border-radius: 999px; }
                   </style>
-                  <script>setTimeout(function(){ window.location.href = '%s'; }, 1200);</script>
                 </head>
                 <body>
                   <div class="card">
                     <h1>✅ Pagamento recebido!</h1>
-                    <p>Voltando automaticamente para o WhatsApp com a sua confirmação...</p>
-                    <a class="btn" href="%s">Abrir WhatsApp agora</a>
+                    <p>Já estamos validando o seu sinal e enviamos a confirmação direto no seu WhatsApp.</p>
+                    <a class="btn" href="%s">Voltar para o WhatsApp</a>
                   </div>
                 </body>
                 </html>
-                """, safeReturnUrl, safeReturnUrl, safeReturnUrl);
+                """, safeReturnUrl);
         return ResponseEntity.ok(html);
     }
 }
