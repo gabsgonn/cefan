@@ -82,7 +82,8 @@ public class PaymentProcessingService {
 
         log.info("Processando notificação de pagamento do Mercado Pago para ID=[{}]", paymentId);
 
-        Appointment appointment = appointmentRepository.findByMpPaymentIdForUpdate(paymentId)
+        Appointment appointment = appointmentRepository.findByPaymentProviderAndReferenceForUpdate("mercadopago", paymentId)
+                .or(() -> appointmentRepository.findByMpPaymentIdForUpdate(paymentId))
                 .or(() -> appointmentRepository.findByMpPaymentId(paymentId))
                 .orElse(null);
 

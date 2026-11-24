@@ -137,9 +137,14 @@ public class AppointmentReservationService {
                 ? appointmentRepository.findById(reserved.getId()).orElse(reserved)
                 : reserved;
         target.setMpPaymentId(paymentId);
+        if (paymentId != null && !paymentId.isBlank()) {
+            target.setPaymentProvider("mercadopago");
+            target.setPaymentReference(paymentId);
+        }
         target.setMpPixCopyPaste(pixCopyPaste != null ? pixCopyPaste.trim() : null);
         target.setMpPixQrCodeBase64(pixQrCodeBase64);
         target.setMpPaymentLink(ticketUrl);
+        target.setPaymentUrl(ticketUrl);
         appointmentRepository.saveAndFlush(target);
     }
 
