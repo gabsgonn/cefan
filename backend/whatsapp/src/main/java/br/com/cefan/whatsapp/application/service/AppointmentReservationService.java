@@ -148,6 +148,24 @@ public class AppointmentReservationService {
         appointmentRepository.saveAndFlush(target);
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void attachPaymentLinkDetails(
+            Appointment reserved,
+            String provider,
+            String reference,
+            String paymentUrl) {
+        if (reserved == null) {
+            return;
+        }
+        Appointment target = (reserved.getId() != null)
+                ? appointmentRepository.findById(reserved.getId()).orElse(reserved)
+                : reserved;
+        target.setPaymentProvider(provider);
+        target.setPaymentReference(reference);
+        target.setPaymentUrl(paymentUrl);
+        appointmentRepository.saveAndFlush(target);
+    }
+
     /**
      * Transação compensatória independente (REQUIRES_NEW): cancela imediatamente a reserva
      * temporária se a geração do PIX falhar, liberando o horário na agenda.

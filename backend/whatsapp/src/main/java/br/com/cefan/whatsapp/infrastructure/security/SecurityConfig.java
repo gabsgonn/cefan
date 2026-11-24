@@ -63,8 +63,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Rotas públicas de autenticação e documentação
                         .requestMatchers("/api/v1/auth/**").permitAll()
-                        // Webhooks externos (Evolution API e Mercado Pago)
+                        // Webhooks externos (Evolution API, Mercado Pago e InfinitePay) + página de retorno de checkout
                         .requestMatchers("/api/v1/webhooks/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payments/infinitepay/return").permitAll()
                         // Streaming SSE em tempo real (EventSource não suporta headers HTTP customizados)
                         .requestMatchers("/api/v1/conversations/*/stream", "/api/v1/conversations/stream", "/api/v1/notifications/stream").permitAll()
                         // Branding do estúdio (nome e logo) acessível para qualquer usuário autenticado (header)

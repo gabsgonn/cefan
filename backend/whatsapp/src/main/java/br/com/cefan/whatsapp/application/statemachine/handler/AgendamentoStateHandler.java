@@ -143,6 +143,15 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
     private final AppointmentReservationService reservationService;
     private final Clock clock;
 
+    @Autowired(required = false)
+    private br.com.cefan.whatsapp.application.payment.PaymentGatewayRegistry paymentGatewayRegistry;
+
+    @Autowired(required = false)
+    private br.com.cefan.whatsapp.infrastructure.infinitepay.InfinitePayWebhookSigner infinitePayWebhookSigner;
+
+    @org.springframework.beans.factory.annotation.Value("${cefan.public.base-url:https://cefan.gabrielgonc.com}")
+    private String publicBaseUrl = "https://cefan.gabrielgonc.com";
+
     public AgendamentoStateHandler(
             EvolutionApiClient evolutionApiClient,
             AppointmentRepository appointmentRepository,
@@ -653,6 +662,20 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
             remainingAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
 
+        boolean useInfinitePay = tenantConfig != null
+                && "infinitepay".equalsIgnoreCase(tenantConfig.getPaymentProvider());
+
+        if (useInfinitePay) {
+            var gatewayOpt = (paymentGatewayRegistry != null)
+                    ? paymentGatewayRegistry.forTenant(tenantConfig)
+                    : Optional.<br.com.cefan.whatsapp.application.payment.PaymentGateway>empty();
+            if (gatewayOpt.isEmpty() || !gatewayOpt.get().isConfiguredFor(tenantConfig)) {
+                log.error("Provedor InfinitePay ativo para o tenant, mas incompleto (handle ou INFINITEPAY_API_KEY ausente). Acionando transbordo sem criar reserva.");
+                handlePixCreationFailure(customer, session, webhook, artist, scheduledStart, tenantConfig, context);
+                return;
+            }
+        }
+
         // 1. Transação curta (REQUIRES_NEW): FOR UPDATE no artista -> expira vencidos -> valida -> saveAndFlush -> COMMIT (libera o lock!)
         Optional<Appointment> reservedOpt = reservationService.reserveSlotAtomically(
                 customer, artist, scheduledStart, scheduledEnd,
@@ -664,6 +687,60 @@ public class AgendamentoStateHandler implements ConversationStateHandler {
 
         Appointment reserved = reservedOpt.get();
         User reservedArtist = reserved.getArtist() != null ? reserved.getArtist() : artist;
+
+        if (useInfinitePay) {
+            br.com.cefan.whatsapp.application.payment.PaymentGateway gateway = paymentGatewayRegistry.forTenant(tenantConfig).orElseThrow();
+            String base = (publicBaseUrl != null ? publicBaseUrl.replaceAll("/+$", "") : "https://cefan.gabrielgonc.com");
+            String hmac = (infinitePayWebhookSigner != null) ? infinitePayWebhookSigner.sign(reserved.getId()) : "unsigned";
+            String webhookUrl = base + "/api/v1/webhooks/infinitepay/" + reserved.getId() + "/" + hmac;
+            String redirectUrl = base + "/api/v1/payments/infinitepay/return";
+
+            br.com.cefan.whatsapp.application.payment.PaymentCharge charge;
+            try {
+                charge = gateway.createCharge(tenantConfig, new br.com.cefan.whatsapp.application.payment.CreateChargeRequest(
+                        reserved.getId(),
+                        br.com.cefan.whatsapp.application.payment.PaymentConfirmationService.toCents(depositAmount),
+                        "Sinal de reserva",
+                        customer.getName(),
+                        customer.getPhone(),
+                        null,
+                        reserved.getExpiresAt(),
+                        webhookUrl,
+                        redirectUrl
+                ));
+            } catch (Exception e) {
+                log.error("Falha ao criar link de pagamento InfinitePay para cliente [{}]: {}. Cancelando reserva em REQUIRES_NEW.",
+                        customer.getPhone(), e.getMessage(), e);
+                reservationService.cancelTemporaryReservation(reserved);
+                handlePixCreationFailure(customer, session, webhook, reservedArtist, scheduledStart, tenantConfig, context);
+                return;
+            }
+
+            try {
+                reservationService.attachPaymentLinkDetails(reserved, charge.provider(), charge.reference(), charge.paymentUrl());
+            } catch (Exception e) {
+                log.error("Falha ao gravar link InfinitePay na reserva [{}]: {}. Cancelando reserva em REQUIRES_NEW.",
+                        reserved.getId(), e.getMessage(), e);
+                reservationService.cancelTemporaryReservation(reserved);
+                handlePixCreationFailure(customer, session, webhook, reservedArtist, scheduledStart, tenantConfig, context);
+                return;
+            }
+
+            session.setAssignedUser(reservedArtist);
+            session.setAssignedArtistName(reservedArtist.getName());
+            session.setCurrentState(ConversationState.MENU);
+            clearSchedulingContext(context);
+            writeContextMap(session, context);
+
+            String summaryMessage = buildUnifiedPixSummaryMessage(
+                    customer, reservedArtist.getName(), scheduledStart, scheduledEnd, durationHours,
+                    depositAmount, remainingAmount, expirationMinutes, tenantConfig)
+                    .replace("código PIX Copia e Cola", "link de pagamento")
+                    .replace("para facilitar na hora de copiar", "para pagar via PIX ou Cartão");
+            sendAndRecord(session, customer, webhook, summaryMessage);
+            sendAndRecord(session, customer, webhook, charge.paymentUrl());
+            return;
+        }
 
         // 2. FORA do lock e APÓS commit da reserva: cria cobrança PIX com date_of_expiration = expires_at da reserva
         String payerEmail = customer.getPhone() + "@cefan.app";
