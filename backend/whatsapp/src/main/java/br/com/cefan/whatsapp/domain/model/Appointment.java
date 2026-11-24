@@ -65,6 +65,28 @@ public class Appointment {
     @Column(name = "payment_url", columnDefinition = "TEXT")
     private String paymentUrl;
 
+    @Column(name = "paid_amount_cents")
+    private Long paidAmountCents;
+
+    @Column(name = "capture_method", length = 40)
+    private String captureMethod;
+
+    @Column(name = "transaction_nsu", length = 120)
+    private String transactionNsu;
+
+    @Column(name = "invoice_slug", length = 120)
+    private String invoiceSlug;
+
+    @Column(name = "needs_manual_review", nullable = false)
+    @Builder.Default
+    private Boolean needsManualReview = false;
+
+    @Column(name = "manual_confirmed_by", length = 120)
+    private String manualConfirmedBy;
+
+    @Column(name = "manual_confirmed_at")
+    private OffsetDateTime manualConfirmedAt;
+
     @Column(name = "mp_payment_link", columnDefinition = "TEXT")
     private String mpPaymentLink;
 
