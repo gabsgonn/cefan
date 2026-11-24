@@ -36,7 +36,7 @@ public class InfinitePayRedirectController {
         if (orderNsuRaw != null && !orderNsuRaw.isBlank() && transactionNsu != null && !transactionNsu.isBlank()) {
             try {
                 UUID orderNsu = UUID.fromString(orderNsuRaw.trim());
-                paymentInboxService.enqueueIdempotent(
+                var event = paymentInboxService.enqueueIdempotent(
                         InfinitePayPaymentGateway.PROVIDER,
                         orderNsu,
                         orderNsu,
@@ -45,8 +45,10 @@ public class InfinitePayRedirectController {
                         captureMethod,
                         "REDIRECT"
                 );
+                paymentInboxService.processSingleEvent(event, java.time.OffsetDateTime.now(
+                        br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler.STUDIO_ZONE));
             } catch (Exception e) {
-                log.warn("Falha ao registrar retorno redirect InfinitePay na inbox: {}", e.getMessage());
+                log.warn("Falha ao registrar/processar retorno redirect InfinitePay: {}", e.getMessage());
             }
         }
 
@@ -56,7 +58,8 @@ public class InfinitePayRedirectController {
                 <head>
                   <meta charset="UTF-8" />
                   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                  <title>Vício Tattoo CWB — Pagamento Recebido</title>
+                  <meta http-equiv="refresh" content="1;url=https://wa.me/" />
+                  <title>Vício Tattoo CWB — Redirecionando para o WhatsApp</title>
                   <style>
                     body { font-family: system-ui, sans-serif; background: #111; color: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
                     .card { background: #1c1c1e; border-radius: 16px; padding: 32px; max-width: 420px; text-align: center; box-shadow: 0 12px 32px rgba(0,0,0,0.4); }
@@ -64,12 +67,13 @@ public class InfinitePayRedirectController {
                     p { color: #b5b5bd; line-height: 1.5; margin-bottom: 24px; }
                     a.btn { display: inline-block; background: #25D366; color: #081c0f; font-weight: 700; text-decoration: none; padding: 12px 24px; border-radius: 999px; }
                   </style>
+                  <script>setTimeout(function(){ window.location.href = 'https://wa.me/'; }, 1200);</script>
                 </head>
                 <body>
                   <div class="card">
-                    <h1>Obrigado! Recebemos seu retorno</h1>
-                    <p>Estamos validando o pagamento do seu sinal junto à operadora. Assim que confirmado, você receberá a confirmação direto no WhatsApp.</p>
-                    <a class="btn" href="https://wa.me/">Voltar para o WhatsApp</a>
+                    <h1>✅ Pagamento recebido!</h1>
+                    <p>Voltando automaticamente para o WhatsApp com a sua confirmação...</p>
+                    <a class="btn" href="https://wa.me/">Abrir WhatsApp agora</a>
                   </div>
                 </body>
                 </html>
