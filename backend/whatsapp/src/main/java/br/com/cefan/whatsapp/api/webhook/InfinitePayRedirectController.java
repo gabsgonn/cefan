@@ -26,6 +26,9 @@ public class InfinitePayRedirectController {
 
     private final PaymentInboxService paymentInboxService;
 
+    @org.springframework.beans.factory.annotation.Value("${cefan.whatsapp.return-url:https://wa.me/}")
+    private String whatsappReturnUrl = "https://wa.me/";
+
     @GetMapping(value = "/return", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> handleReturn(
             @RequestParam(name = "order_nsu", required = false) String orderNsuRaw,
@@ -52,13 +55,14 @@ public class InfinitePayRedirectController {
             }
         }
 
-        String html = """
+        String safeReturnUrl = (whatsappReturnUrl != null && !whatsappReturnUrl.isBlank()) ? whatsappReturnUrl.trim() : "https://wa.me/";
+        String html = String.format("""
                 <!DOCTYPE html>
                 <html lang="pt-BR">
                 <head>
                   <meta charset="UTF-8" />
                   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-                  <meta http-equiv="refresh" content="1;url=https://wa.me/" />
+                  <meta http-equiv="refresh" content="1;url=%s" />
                   <title>Vício Tattoo CWB — Redirecionando para o WhatsApp</title>
                   <style>
                     body { font-family: system-ui, sans-serif; background: #111; color: #f5f5f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
@@ -67,17 +71,17 @@ public class InfinitePayRedirectController {
                     p { color: #b5b5bd; line-height: 1.5; margin-bottom: 24px; }
                     a.btn { display: inline-block; background: #25D366; color: #081c0f; font-weight: 700; text-decoration: none; padding: 12px 24px; border-radius: 999px; }
                   </style>
-                  <script>setTimeout(function(){ window.location.href = 'https://wa.me/'; }, 1200);</script>
+                  <script>setTimeout(function(){ window.location.href = '%s'; }, 1200);</script>
                 </head>
                 <body>
                   <div class="card">
                     <h1>✅ Pagamento recebido!</h1>
                     <p>Voltando automaticamente para o WhatsApp com a sua confirmação...</p>
-                    <a class="btn" href="https://wa.me/">Abrir WhatsApp agora</a>
+                    <a class="btn" href="%s">Abrir WhatsApp agora</a>
                   </div>
                 </body>
                 </html>
-                """;
+                """, safeReturnUrl, safeReturnUrl, safeReturnUrl);
         return ResponseEntity.ok(html);
     }
 }
