@@ -53,18 +53,46 @@ public class GeminiVisionClient {
     private final int maxAttemptsPerModel;
     @Getter
     private final long initialBackoffMs;
+    public static final String PROMPT_VERSION = "v2";
+
     @Getter
     private final int timeoutMs;
     @Getter
+    private final long totalDeadlineMs;
+    @Getter
+    private final boolean cacheEnabled;
+    @Getter
     private final String thinkingLevel;
     private final UserRepository userRepository;
+    private final Map<String, TattooAnalysisResult> imageAnalysisCache = new ConcurrentHashMap<>();
+
+    public static final List<String> ALLOWED_STYLES = List.of(
+            "Old School / Tradicional",
+            "Realismo Preto e Cinza",
+            "Fineline / Traço Fino",
+            "Blackwork / Geométrico",
+            "Aquarela & Floral",
+            "Oriental / Neo Tradicional",
+            "Pontilhismo & Mandala",
+            "Dark Art & Lettering",
+            "Body Piercing",
+            "Arte Personalizada"
+    );
+
+    public static final List<String> ALLOWED_SIZE_CATEGORIES = List.of(
+            "FLASH", "PEQUENA", "MEDIA", "GRANDE", "FECHAMENTO"
+    );
+
+    public static final List<String> ALLOWED_COMPLEXITY_LEVELS = List.of(
+            "BAIXA", "MEDIA", "ALTA"
+    );
 
     public GeminiVisionClient(
             ObjectMapper objectMapper,
             String apiKey,
             String model,
             String baseUrl) {
-        this(objectMapper, apiKey, model, null, baseUrl, null, 2, 300L, 18000, "low", null, null);
+        this(objectMapper, apiKey, model, null, baseUrl, null, 2, 300L, 18000, "low", null, null, 25000L, true);
     }
 
     public GeminiVisionClient(
@@ -73,7 +101,7 @@ public class GeminiVisionClient {
             String model,
             String baseUrl,
             UserRepository userRepository) {
-        this(objectMapper, apiKey, model, null, baseUrl, userRepository, 2, 300L, 18000, "low", null, null);
+        this(objectMapper, apiKey, model, null, baseUrl, userRepository, 2, 300L, 18000, "low", null, null, 25000L, true);
     }
 
     public GeminiVisionClient(
@@ -88,7 +116,42 @@ public class GeminiVisionClient {
             int timeoutMs,
             String thinkingLevel) {
         this(objectMapper, apiKey, model, fallbackModel, baseUrl, userRepository,
-                maxAttemptsPerModel, initialBackoffMs, timeoutMs, thinkingLevel, null, null);
+                maxAttemptsPerModel, initialBackoffMs, timeoutMs, thinkingLevel, null, null, 25000L, true);
+    }
+
+    public GeminiVisionClient(
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String fallbackModel,
+            String baseUrl,
+            UserRepository userRepository,
+            int maxAttemptsPerModel,
+            long initialBackoffMs,
+            int timeoutMs,
+            String thinkingLevel,
+            String modelChainCsv,
+            String modelTimeoutsCsv) {
+        this(objectMapper, apiKey, model, fallbackModel, baseUrl, userRepository,
+                maxAttemptsPerModel, initialBackoffMs, timeoutMs, thinkingLevel, modelChainCsv, modelTimeoutsCsv, 25000L, true);
+    }
+
+    public GeminiVisionClient(
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String fallbackModel,
+            String baseUrl,
+            UserRepository userRepository,
+            int maxAttemptsPerModel,
+            long initialBackoffMs,
+            int timeoutMs,
+            String thinkingLevel,
+            String modelChainCsv,
+            String modelTimeoutsCsv,
+            long totalDeadlineMs) {
+        this(objectMapper, apiKey, model, fallbackModel, baseUrl, userRepository,
+                maxAttemptsPerModel, initialBackoffMs, timeoutMs, thinkingLevel, modelChainCsv, modelTimeoutsCsv, totalDeadlineMs, true);
     }
 
     @Autowired
@@ -104,7 +167,9 @@ public class GeminiVisionClient {
             @Value("${gemini.api.timeout-ms:18000}") int timeoutMs,
             @Value("${gemini.api.thinking-level:low}") String thinkingLevel,
             @Value("${gemini.api.model-chain:}") String modelChainCsv,
-            @Value("${gemini.api.model-timeouts-ms:}") String modelTimeoutsCsv) {
+            @Value("${gemini.api.model-timeouts-ms:}") String modelTimeoutsCsv,
+            @Value("${gemini.api.total-deadline-ms:25000}") long totalDeadlineMs,
+            @Value("${gemini.api.cache-enabled:true}") boolean cacheEnabled) {
         this.objectMapper = objectMapper;
         this.baseUrl = baseUrl;
         this.apiKey = (apiKey != null) ? apiKey.trim() : "";
@@ -116,6 +181,8 @@ public class GeminiVisionClient {
         this.maxAttemptsPerModel = Math.max(1, maxAttemptsPerModel);
         this.initialBackoffMs = Math.max(0L, initialBackoffMs);
         this.timeoutMs = Math.max(1000, timeoutMs);
+        this.totalDeadlineMs = Math.max(1000L, totalDeadlineMs);
+        this.cacheEnabled = cacheEnabled;
         this.thinkingLevel = (thinkingLevel != null) ? thinkingLevel.trim() : "";
         this.restClient = buildRestClient(baseUrl, this.timeoutMs);
     }
@@ -205,6 +272,10 @@ public class GeminiVisionClient {
     }
 
     public TattooAnalysisResult analyzeTattoo(String base64Image, String mimeType, String customerNotes) {
+        return analyzeTattoo(null, base64Image, mimeType, customerNotes);
+    }
+
+    public TattooAnalysisResult analyzeTattoo(String customerKey, String base64Image, String mimeType, String customerNotes) {
         if (apiKey.isBlank()) {
             log.warn("GEMINI_FALLBACK ativado [motivo=MISSING_API_KEY, model={}]: GEMINI_API_KEY não configurada.", model);
             return createFallbackResult(customerNotes);
@@ -216,6 +287,21 @@ public class GeminiVisionClient {
         }
 
         String sanitizedBase64 = sanitizeBase64(base64Image);
+        List<String> modelsToTry = getModelChain();
+        String primaryModelForCache = modelsToTry.isEmpty() ? this.model : modelsToTry.get(0);
+        String normalizedNotes = (customerNotes != null) ? customerNotes.trim().toLowerCase(Locale.ROOT) : "";
+        String cacheKey = (cacheEnabled && customerKey != null && !customerKey.isBlank())
+                ? sha256Hex(customerKey.trim() + "|" + primaryModelForCache + "|" + PROMPT_VERSION + "|" + sha256Hex(sanitizedBase64) + "|" + normalizedNotes)
+                : null;
+        if (cacheKey != null) {
+            TattooAnalysisResult cached = imageAnalysisCache.get(cacheKey);
+            if (cached != null) {
+                log.info("GEMINI_STEP [action=CACHE_HIT, customer={}, style={}, size={}, hours={}]",
+                        customerKey, cached.getStyle(), cached.getSizeCategory(), cached.getEstimatedHours());
+                return copyResult(cached);
+            }
+        }
+
         String effectiveMimeType = (mimeType != null && !mimeType.isBlank()) ? mimeType : "image/jpeg";
         String prompt = buildPrompt(customerNotes);
 
@@ -230,14 +316,28 @@ public class GeminiVisionClient {
                         .build())
                 .build();
 
-        List<String> modelsToTry = getModelChain();
         boolean sawTimeout = false;
+        long deadlineStartNs = System.nanoTime();
 
         for (int modelIdx = 0; modelIdx < modelsToTry.size(); modelIdx++) {
+            long elapsedTotalMs = Duration.ofNanos(System.nanoTime() - deadlineStartNs).toMillis();
+            if (elapsedTotalMs >= totalDeadlineMs) {
+                sawTimeout = true;
+                log.warn("GEMINI_STEP [action=DEADLINE_EXCEEDED, elapsedTotalMs={}, totalDeadlineMs={}]",
+                        elapsedTotalMs, totalDeadlineMs);
+                break;
+            }
             String candidateModel = modelsToTry.get(modelIdx);
             GeminiGenerateContentRequest requestBody = buildRequestForModel(textPart, imagePart, candidateModel);
 
             for (int attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
+                elapsedTotalMs = Duration.ofNanos(System.nanoTime() - deadlineStartNs).toMillis();
+                if (elapsedTotalMs >= totalDeadlineMs) {
+                    sawTimeout = true;
+                    log.warn("GEMINI_STEP [action=DEADLINE_EXCEEDED, model={}, elapsedTotalMs={}, totalDeadlineMs={}]",
+                            candidateModel, elapsedTotalMs, totalDeadlineMs);
+                    break;
+                }
                 long startNs = System.nanoTime();
                 int effectiveTimeoutMs = resolveTimeoutMsForModel(candidateModel);
                 log.info("GEMINI_STEP [action=REQUEST, model={}, attempt={}/{}, timeoutMs={}, base64Bytes={}, thinking={}]",
@@ -273,6 +373,12 @@ public class GeminiVisionClient {
                                 TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
                                 postProcessResult(result);
                                 result.setFallback(false);
+                                if (cacheKey != null) {
+                                    if (imageAnalysisCache.size() > 500) {
+                                        imageAnalysisCache.clear();
+                                    }
+                                    imageAnalysisCache.put(cacheKey, copyResult(result));
+                                }
                                 log.info("GEMINI_STEP [action=SUCCESS, model={}, attempt={}/{}, latencyMs={}, style={}, size={}, hours={}, artists={}]",
                                         candidateModel, attempt, maxAttemptsPerModel, elapsedMs,
                                         result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getRecommendedArtists());
@@ -353,6 +459,10 @@ public class GeminiVisionClient {
 
         GeminiGenerateContentRequest.ThinkingConfig thinkingCfg = buildThinkingConfigForModel(targetModel);
 
+        // Na família Gemini 3/3.5, o Google recomenda manter a temperatura padrão (1.0 / omitida) para evitar loops/degradação
+        String normModel = (targetModel != null) ? targetModel.toLowerCase(Locale.ROOT) : "";
+        Double temperature = (normModel.contains("gemini-3") || normModel.contains("gemini-4")) ? null : 0.0;
+
         return GeminiGenerateContentRequest.builder()
                 .contents(List.of(
                         GeminiGenerateContentRequest.Content.builder()
@@ -361,10 +471,30 @@ public class GeminiVisionClient {
                 ))
                 .generationConfig(GeminiGenerateContentRequest.GenerationConfig.builder()
                         .responseMimeType("application/json")
-                        .temperature(0.2)
+                        .responseSchema(buildResponseSchema())
+                        .temperature(temperature)
                         .thinkingConfig(thinkingCfg)
                         .build())
                 .build();
+    }
+
+    public static Map<String, Object> buildResponseSchema() {
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("style", Map.of("type", "STRING", "enum", ALLOWED_STYLES));
+        props.put("sizeCategory", Map.of("type", "STRING", "enum", ALLOWED_SIZE_CATEGORIES));
+        props.put("complexityLevel", Map.of("type", "STRING", "enum", ALLOWED_COMPLEXITY_LEVELS));
+        props.put("detectedBodyLocation", Map.of("type", "STRING", "nullable", true));
+        props.put("suggestedBodyLocation", Map.of("type", "STRING"));
+        props.put("customerDescription", Map.of("type", "STRING"));
+        props.put("technicalNotes", Map.of("type", "STRING"));
+        props.put("recommendedArtists", Map.of("type", "ARRAY", "items", Map.of("type", "STRING")));
+        props.put("primaryColors", Map.of("type", "ARRAY", "items", Map.of("type", "STRING")));
+
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "OBJECT");
+        schema.put("properties", props);
+        schema.put("required", List.of("style", "sizeCategory", "complexityLevel", "suggestedBodyLocation", "customerDescription", "recommendedArtists"));
+        return schema;
     }
 
     /**
@@ -403,15 +533,88 @@ public class GeminiVisionClient {
             return "default";
         }
         if (cfg.getThinkingLevel() != null) {
-            return "thinkingLevel=" + cfg.getThinkingLevel();
+            return cfg.getThinkingLevel();
         }
-        return "thinkingBudget=" + cfg.getThinkingBudget();
+        return "budget:" + cfg.getThinkingBudget();
+    }
+
+    /**
+     * Tabela determinística de horas e multiplicador baseada em (sizeCategory + complexityLevel),
+     * eliminando variação de horas/preço entre execuções do modelo para a mesma foto.
+     */
+    public static double calculateDeterministicHours(TattooSizeOption size, String complexityLevel) {
+        TattooSizeOption safeSize = (size != null) ? size : TattooSizeOption.MEDIA;
+        String comp = (complexityLevel != null) ? complexityLevel.trim().toUpperCase(Locale.ROOT) : "MEDIA";
+        return switch (safeSize) {
+            case FLASH -> "ALTA".equals(comp) ? 1.0 : 1.0;
+            case PEQUENA -> "ALTA".equals(comp) ? 2.0 : 1.5;
+            case MEDIA -> switch (comp) {
+                case "BAIXA" -> 2.0;
+                case "ALTA" -> 3.0;
+                default -> 2.5;
+            };
+            case GRANDE -> switch (comp) {
+                case "BAIXA" -> 3.5;
+                case "ALTA" -> 5.0;
+                default -> 4.0;
+            };
+            case FECHAMENTO -> 6.0;
+        };
+    }
+
+    public static double calculateDeterministicMultiplier(String complexityLevel) {
+        String comp = (complexityLevel != null) ? complexityLevel.trim().toUpperCase(Locale.ROOT) : "MEDIA";
+        return switch (comp) {
+            case "BAIXA" -> 1.05;
+            case "ALTA" -> 1.40;
+            default -> 1.20;
+        };
+    }
+
+    private static String sha256Hex(String input) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(input.hashCode());
+        }
+    }
+
+    private static TattooAnalysisResult copyResult(TattooAnalysisResult src) {
+        return TattooAnalysisResult.builder()
+                .style(src.getStyle())
+                .complexityLevel(src.getComplexityLevel())
+                .complexityMultiplier(src.getComplexityMultiplier())
+                .estimatedHours(src.getEstimatedHours())
+                .detectedBodyLocation(src.getDetectedBodyLocation())
+                .suggestedBodyLocation(src.getSuggestedBodyLocation())
+                .customerDescription(src.getCustomerDescription())
+                .technicalNotes(src.getTechnicalNotes())
+                .primaryColors(src.getPrimaryColors() != null ? new ArrayList<>(src.getPrimaryColors()) : null)
+                .sizeCategory(src.getSizeCategory())
+                .estimatedSizeCm(src.getEstimatedSizeCm())
+                .recommendedArtists(src.getRecommendedArtists() != null ? new ArrayList<>(src.getRecommendedArtists()) : null)
+                .suggestedPriceMin(src.getSuggestedPriceMin())
+                .suggestedPriceMax(src.getSuggestedPriceMax())
+                .fallback(src.isFallback())
+                .build();
     }
 
     private void postProcessResult(TattooAnalysisResult result) {
         if (result == null) {
             return;
         }
+        // Horas e multiplicador sempre calculados pela tabela determinística (tamanho + complexidade)
+        TattooSizeOption sizeOpt = TattooSizeOption.fromCategoryKey(result.getSizeCategory()).orElse(TattooSizeOption.MEDIA);
+        result.setSizeCategory(sizeOpt.getCategoryKey());
+        result.setEstimatedSizeCm(sizeOpt.getFormattedLabel());
+        result.setEstimatedHours(calculateDeterministicHours(sizeOpt, result.getComplexityLevel()));
+        result.setComplexityMultiplier(calculateDeterministicMultiplier(result.getComplexityLevel()));
         // Limita sugestões de local a no máximo 2
         if (result.getSuggestedBodyLocation() != null && !result.getSuggestedBodyLocation().isBlank()) {
             List<String> limited = QuoteMessageBuilder.limitSuggestions(result.getSuggestedBodyLocation(), 2);

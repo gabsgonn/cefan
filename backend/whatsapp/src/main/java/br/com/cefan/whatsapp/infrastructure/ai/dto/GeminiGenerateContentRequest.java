@@ -57,6 +57,8 @@ public class GeminiGenerateContentRequest {
     public static class GenerationConfig {
         @JsonProperty("response_mime_type")
         private String responseMimeType;
+        @JsonProperty("response_schema")
+        private java.util.Map<String, Object> responseSchema;
         private Double temperature;
         private ThinkingConfig thinkingConfig;
     }

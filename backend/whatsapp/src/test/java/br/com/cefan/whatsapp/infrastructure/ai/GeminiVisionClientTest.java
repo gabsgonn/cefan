@@ -345,4 +345,55 @@ class GeminiVisionClientTest {
             assertEquals("Old School / Tradicional", result.getStyle());
         }
     }
+
+    @Test
+    void shouldUseTemperatureZeroClosedSchemaDeterministicHoursAndSha256CachePerCustomer() {
+        String geminiPayload = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "{\\"style\\":\\"Old School / Tradicional\\",\\"sizeCategory\\":\\"MEDIA\\",\\"complexityLevel\\":\\"ALTA\\",\\"suggestedBodyLocation\\":\\"Antebraço\\",\\"customerDescription\\":\\"Pantera clássica.\\",\\"recommendedArtists\\":[\\"Rodrigo Old School\\"]}"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        org.springframework.web.client.RestClient.Builder builder =
+                org.springframework.web.client.RestClient.builder().baseUrl("http://localhost:9999/v1beta");
+        org.springframework.test.web.client.MockRestServiceServer mockServer =
+                org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+
+        // Apenas 1 chamada HTTP esperada: a segunda com a mesma foto e mesmo cliente deve vir do cache SHA-256
+        mockServer.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://localhost:9999/v1beta/models/gemini-3.5-flash-lite:generateContent?key=secret-key"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.content().string(
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("\"temperature\"")),
+                                org.hamcrest.Matchers.containsString("\"response_schema\""),
+                                org.hamcrest.Matchers.containsString("Old School / Tradicional")
+                        )))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        geminiPayload.getBytes(StandardCharsets.UTF_8), org.springframework.http.MediaType.APPLICATION_JSON));
+
+        GeminiVisionClient client = new GeminiVisionClient(
+                objectMapper, "secret-key", "gemini-3.5-flash-lite", "gemini-3.5-flash",
+                "http://localhost:9999/v1beta", null, 2, 10L, 12000, "low",
+                "gemini-3.5-flash-lite,gemini-3.5-flash", "", 25000L);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "restClient", builder.build());
+
+        TattooAnalysisResult first = client.analyzeTattoo("5541999074863", "aGVsbG8=", "image/jpeg", "");
+        TattooAnalysisResult second = client.analyzeTattoo("5541999074863", "aGVsbG8=", "image/jpeg", "");
+
+        mockServer.verify();
+        assertEquals(3.0, first.getEstimatedHours()); // MEDIA + ALTA -> 3.0h na tabela determinística
+        assertEquals(1.40, first.getComplexityMultiplier());
+        assertEquals(first.getStyle(), second.getStyle());
+        assertEquals(first.getEstimatedHours(), second.getEstimatedHours());
+    }
 }
