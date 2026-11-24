@@ -348,7 +348,7 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
     .search-input {
       position: relative;
       flex: 1;
-      min-width: 280px;
+      min-width: min(280px, 100%);
 
       svg {
         position: absolute;
@@ -402,7 +402,7 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
 
     .professionals-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
       gap: 1.5rem;
     }
 
@@ -569,6 +569,15 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
       gap: 0.5rem;
       font-size: 0.8rem;
       color: var(--text-secondary);
+
+      min-width: 0;
+
+      span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
 
       svg {
         color: var(--text-muted);
@@ -767,6 +776,52 @@ import { ModalComponent } from '../../shared/components/modal/modal.component';
       .full-width {
         grid-column: span 1;
       }
+
+      .search-input input,
+      .input-group input,
+      .input-group select {
+        font-size: 16px;
+        min-height: 44px;
+      }
+
+      .pro-card:hover {
+        transform: none;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .metrics-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+      }
+      .metric-card { padding: 0.75rem; }
+      .stats-row { grid-template-columns: 1fr; }
+    }
+
+    .alert-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      font-size: 0.875rem;
+      overflow-wrap: anywhere;
+      &.success { background-color: var(--color-success-bg); color: var(--color-success); }
+      &.error { background-color: var(--color-danger-bg); color: var(--color-danger); }
+    }
+
+    .alert-close {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-size: 1.25rem;
+      cursor: pointer;
+      min-width: 40px;
+      min-height: 40px;
+      flex-shrink: 0;
     }
   `]
 })

@@ -1248,8 +1248,58 @@ import { DOC_ORIENTATION, NgxImageCompressService } from 'ngx-image-compress';
       background: none;
       border: none;
       color: inherit;
-      font-size: 1.2rem;
+      font-size: 1.4rem;
       cursor: pointer;
+      min-width: 40px;
+      min-height: 40px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ===== Responsive polish ===== */
+    :host { display: block; max-width: 100%; overflow-x: hidden; }
+    .page-container, .card, .config-grid > *, .quote-customization-grid > *, .form-row > * { min-width: 0; }
+    .page-title, .page-subtitle, .card-header h3, .card-header p, .toggle-title, .toggle-desc, .hint, .sim-badge, .template-group label, .input-group label {
+      overflow-wrap: anywhere;
+    }
+    .input-group input, .input-group select, .template-textarea { box-sizing: border-box; max-width: 100%; }
+    .alert-banner { gap: 0.75rem; span { min-width: 0; overflow-wrap: anywhere; } }
+    .toggle-text { min-width: 0; flex: 1; }
+    .simulation-item .sim-header { flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+    .simulation-item .sim-badge { min-width: 0; flex: 1 1 auto; }
+    .simulation-item .sim-price { white-space: nowrap; }
+    .card-footer { flex-wrap: wrap; .btn { min-height: 44px; } }
+    .preview-box-header { gap: 0.5rem; flex-wrap: wrap; }
+    .whatsapp-preview-bubble { overflow-wrap: anywhere; max-width: 100%; }
+    .tab-btn svg { flex-shrink: 0; }
+
+    @media (max-width: 991px) {
+      .quote-live-preview-box { position: static; }
+    }
+
+    @media (max-width: 480px) {
+      .page-container { padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
+      .page-title { font-size: 1.2rem; }
+      .page-subtitle { font-size: 0.85rem; }
+      .card { padding: 1rem; border-radius: var(--radius-lg); }
+      .card-header h3 { font-size: 1.05rem; }
+      .tabs-nav { border-radius: var(--radius-lg); }
+      .tab-btn {
+        flex-direction: column;
+        gap: 0.2rem;
+        font-size: 0.72rem;
+        line-height: 1.2;
+        padding: 0.45rem 0.4rem;
+        border-radius: calc(var(--radius-lg) - 4px);
+      }
+      .logo-boxes { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+      .logo-box { height: 120px; padding: 0.75rem; }
+      .toggle-container { padding: 0.85rem; gap: 0.75rem; }
+      .quote-live-preview-box { padding: 0.9rem; }
+      .whatsapp-preview-bubble { padding: 0.85rem; }
+      .simulation-item { padding: 0.85rem; }
     }
   `]
 })
