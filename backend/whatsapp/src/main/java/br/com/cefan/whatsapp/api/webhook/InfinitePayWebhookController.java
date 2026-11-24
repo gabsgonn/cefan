@@ -39,14 +39,16 @@ public class InfinitePayWebhookController {
         }
 
         try {
+            log.info("Webhook InfinitePay recebido para appointmentId=[{}]: {}", appointmentId, rawBody);
             JsonNode json = objectMapper.readTree(rawBody);
-            String transactionNsu = json.hasNonNull("transaction_nsu") ? json.get("transaction_nsu").asText().trim() : null;
-            String invoiceSlug = json.hasNonNull("invoice_slug") ? json.get("invoice_slug").asText().trim() : null;
-            String captureMethod = json.hasNonNull("capture_method") ? json.get("capture_method").asText().trim() : null;
+            String transactionNsu = firstNonBlank(json, "transaction_nsu", "transactionNsu", "transaction_id");
+            String invoiceSlug = firstNonBlank(json, "invoice_slug", "slug", "invoiceSlug");
+            String captureMethod = firstNonBlank(json, "capture_method", "captureMethod", "payment_method");
             UUID orderNsu = appointmentId;
-            if (json.hasNonNull("order_nsu")) {
+            String orderNsuRaw = firstNonBlank(json, "order_nsu", "orderNsu");
+            if (orderNsuRaw != null) {
                 try {
-                    orderNsu = UUID.fromString(json.get("order_nsu").asText().trim());
+                    orderNsu = UUID.fromString(orderNsuRaw);
                 } catch (IllegalArgumentException ignored) {
                 }
             }
@@ -71,5 +73,18 @@ public class InfinitePayWebhookController {
             log.error("Falha ao gravar webhook InfinitePay na inbox para appointmentId=[{}]: {}", appointmentId, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    private String firstNonBlank(JsonNode json, String... fields) {
+        if (json == null) return null;
+        for (String field : fields) {
+            if (json.hasNonNull(field)) {
+                String val = json.get(field).asText().trim();
+                if (!val.isBlank()) {
+                    return val;
+                }
+            }
+        }
+        return null;
     }
 }

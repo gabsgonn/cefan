@@ -39,4 +39,7 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
 
     List<Appointment> findByStatusAndScheduledStartBetweenAndReminder24hSentFalse(
             AppointmentStatus status, OffsetDateTime start, OffsetDateTime end);
+
+    @Query("SELECT a FROM Appointment a JOIN FETCH a.customer LEFT JOIN FETCH a.artist WHERE a.id = :id")
+    Optional<Appointment> findByIdWithCustomerAndArtist(@Param("id") UUID id);
 }

@@ -171,6 +171,8 @@ public class InfinitePayPaymentGateway implements PaymentGateway {
                     .retrieve()
                     .body(String.class);
 
+            log.info("InfinitePay POST /payment_check resposta para order_nsu=[{}]: {}", evidence.orderNsu(), rawResponse);
+
             JsonNode json = objectMapper.readTree(rawResponse);
             boolean paid = json != null && json.path("paid").asBoolean(false);
             if (!paid) {

@@ -33,8 +33,15 @@ public class InfinitePayRedirectController {
     public ResponseEntity<String> handleReturn(
             @RequestParam(name = "order_nsu", required = false) String orderNsuRaw,
             @RequestParam(name = "slug", required = false) String slug,
+            @RequestParam(name = "invoice_slug", required = false) String invoiceSlug,
             @RequestParam(name = "transaction_nsu", required = false) String transactionNsu,
             @RequestParam(name = "capture_method", required = false) String captureMethod) {
+
+        String resolvedSlug = (slug != null && !slug.isBlank()) ? slug.trim()
+                : (invoiceSlug != null && !invoiceSlug.isBlank() ? invoiceSlug.trim() : null);
+
+        log.info("Retorno redirect InfinitePay recebido: order_nsu=[{}], transaction_nsu=[{}], slug=[{}], capture_method=[{}]",
+                orderNsuRaw, transactionNsu, resolvedSlug, captureMethod);
 
         if (orderNsuRaw != null && !orderNsuRaw.isBlank() && transactionNsu != null && !transactionNsu.isBlank()) {
             try {
@@ -44,13 +51,13 @@ public class InfinitePayRedirectController {
                         orderNsu,
                         orderNsu,
                         transactionNsu.trim(),
-                        slug,
+                        resolvedSlug,
                         captureMethod,
                         "REDIRECT"
                 );
                 paymentInboxService.processNowWithRetry(event);
             } catch (Exception e) {
-                log.warn("Falha ao registrar/processar retorno redirect InfinitePay: {}", e.getMessage());
+                log.warn("Falha ao registrar/processar retorno redirect InfinitePay: {}", e.getMessage(), e);
             }
         }
 

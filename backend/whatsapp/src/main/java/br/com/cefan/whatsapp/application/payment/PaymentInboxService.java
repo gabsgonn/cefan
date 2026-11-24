@@ -1,6 +1,7 @@
 package br.com.cefan.whatsapp.application.payment;
 
 import br.com.cefan.whatsapp.api.controller.StudioAdminController;
+import br.com.cefan.whatsapp.application.service.ChatService;
 import br.com.cefan.whatsapp.application.service.TenantResolver;
 import br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler;
 import br.com.cefan.whatsapp.domain.model.Appointment;
@@ -8,6 +9,7 @@ import br.com.cefan.whatsapp.domain.model.AppointmentStatus;
 import br.com.cefan.whatsapp.domain.model.PaymentInboxEvent;
 import br.com.cefan.whatsapp.domain.model.TenantConfig;
 import br.com.cefan.whatsapp.domain.repository.AppointmentRepository;
+import br.com.cefan.whatsapp.domain.repository.ConversationSessionRepository;
 import br.com.cefan.whatsapp.domain.repository.PaymentInboxEventRepository;
 import br.com.cefan.whatsapp.infrastructure.evolution.EvolutionApiClient;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +19,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,6 +32,8 @@ import java.util.UUID;
 public class PaymentInboxService {
 
     private static final int MAX_ATTEMPTS = 6;
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.forLanguageTag("pt-BR"));
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.forLanguageTag("pt-BR"));
 
     private final PaymentInboxEventRepository inboxRepository;
     private final AppointmentRepository appointmentRepository;
@@ -35,6 +42,8 @@ public class PaymentInboxService {
     private final TenantResolver tenantResolver;
     private final EvolutionApiClient evolutionApiClient;
     private final StudioAdminController studioAdminController;
+    private final ConversationSessionRepository sessionRepository;
+    private final ChatService chatService;
 
     @Transactional
     public PaymentInboxEvent enqueueIdempotent(
@@ -47,7 +56,25 @@ public class PaymentInboxService {
             String source) {
         Optional<PaymentInboxEvent> existing = inboxRepository.findByProviderAndTransactionNsu(provider, transactionNsu);
         if (existing.isPresent()) {
-            return existing.get();
+            PaymentInboxEvent found = existing.get();
+            boolean changed = false;
+            if ((found.getInvoiceSlug() == null || found.getInvoiceSlug().isBlank()) && invoiceSlug != null && !invoiceSlug.isBlank()) {
+                found.setInvoiceSlug(invoiceSlug.trim());
+                changed = true;
+            }
+            if ((found.getCaptureMethod() == null || found.getCaptureMethod().isBlank()) && captureMethod != null && !captureMethod.isBlank()) {
+                found.setCaptureMethod(captureMethod.trim());
+                changed = true;
+            }
+            if (found.getAppointmentId() == null && appointmentId != null) {
+                found.setAppointmentId(appointmentId);
+                changed = true;
+            }
+            if (found.getOrderNsu() == null && orderNsu != null) {
+                found.setOrderNsu(orderNsu);
+                changed = true;
+            }
+            return changed ? inboxRepository.save(found) : found;
         }
         OffsetDateTime now = OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE);
         return inboxRepository.save(PaymentInboxEvent.builder()
@@ -110,10 +137,13 @@ public class PaymentInboxService {
         }
     }
 
+    @Transactional
     public void processSingleEvent(PaymentInboxEvent event, OffsetDateTime now) {
         UUID lookupId = event.getAppointmentId() != null ? event.getAppointmentId() : event.getOrderNsu();
         Appointment appointment = (lookupId != null)
-                ? appointmentRepository.findById(lookupId).orElse(null)
+                ? appointmentRepository.findByIdWithCustomerAndArtist(lookupId)
+                        .or(() -> appointmentRepository.findById(lookupId))
+                        .orElse(null)
                 : null;
 
         // Checa o banco ANTES de chamar payment_check
@@ -146,15 +176,22 @@ public class PaymentInboxService {
             return;
         }
 
+        String slugToVerify = event.getInvoiceSlug();
+        if ((slugToVerify == null || slugToVerify.isBlank()) && appointment.getPaymentUrl() != null) {
+            slugToVerify = extractSlugFromPaymentUrl(appointment.getPaymentUrl());
+        }
+
         PaymentEvidence evidence = new PaymentEvidence(
                 provider,
                 appointment.getPaymentReference(),
                 appointment.getId(),
                 event.getTransactionNsu(),
-                event.getInvoiceSlug()
+                slugToVerify
         );
         PaymentVerificationResult verification = gateway.verify(tenantConfig, evidence);
         PaymentConfirmationService.Decision decision = confirmationService.evaluate(appointment, verification, now);
+        log.info("Avaliação de pagamento InfinitePay para reserva [{}] (tx={}, slug={}): status={}, decision={}, detail={}",
+                appointment.getId(), event.getTransactionNsu(), slugToVerify, verification.status(), decision, verification.detail());
 
         switch (decision) {
             case CONFIRM -> {
@@ -170,8 +207,7 @@ public class PaymentInboxService {
                 inboxRepository.save(event);
 
                 if (appointment.getCustomer() != null) {
-                    String msg = "🎉 *Pagamento do Sinal Confirmado!*\n\nSeu agendamento está 100% garantido! Nos vemos no estúdio. ⚡";
-                    evolutionApiClient.sendTextMessage(appointment.getCustomer().getPhone(), msg);
+                    sendRichConfirmationAndRecord(appointment, tenantConfig);
                 }
             }
             case NEEDS_MANUAL_REVIEW -> {
@@ -216,7 +252,7 @@ public class PaymentInboxService {
                 event.setProcessedAt(now);
                 inboxRepository.save(event);
             }
-            case RETRY_LATER -> {
+            case RETRY_LATER, NOT_PAID -> {
                 int nextAttempt = (event.getAttempts() != null ? event.getAttempts() : 0) + 1;
                 event.setAttempts(nextAttempt);
                 event.setLastError(verification.detail());
@@ -236,5 +272,94 @@ public class PaymentInboxService {
                 inboxRepository.save(event);
             }
         }
+    }
+
+    private void sendRichConfirmationAndRecord(Appointment appointment, TenantConfig config) {
+        String customerPhone = appointment.getCustomer().getPhone();
+        String customerName = appointment.getCustomer().getName();
+        ZonedDateTime startBr = appointment.getScheduledStart() != null
+                ? appointment.getScheduledStart().atZoneSameInstant(AgendamentoStateHandler.STUDIO_ZONE)
+                : ZonedDateTime.now(AgendamentoStateHandler.STUDIO_ZONE);
+        String dateFormatted = startBr.format(DATE_FORMATTER);
+        String timeFormatted = startBr.format(TIME_FORMATTER);
+
+        String customHeader = (config != null && config.getPixConfirmedMessage() != null && !config.getPixConfirmedMessage().isBlank())
+                ? config.getPixConfirmedMessage() + "\n\n"
+                : "";
+        String studioName = (config != null && config.getStudioName() != null && !config.getStudioName().isBlank())
+                ? config.getStudioName()
+                : "Estúdio Vício Tattoo";
+
+        String depositFormatted = AgendamentoStateHandler.formatBrl(appointment.getDepositAmount());
+        String confirmationMessage = String.format(
+                "%s🎉 *Pagamento do Sinal Confirmado!* 🎉\n\n" +
+                "Olá, %s! Seu pagamento de *R$ %s* foi confirmado com sucesso!\n\n" +
+                "🗓️ *Sua sessão está 100%% garantida!*\n" +
+                "📅 *Data:* %s às %sh\n" +
+                "📍 *Local:* %s\n\n" +
+                "💡 *Dicas importantes:*\n" +
+                "• Venha bem alimentado(a) e hidratado(a);\n" +
+                "• Vista roupas confortáveis que facilitem o acesso ao local da arte;\n" +
+                "• Evite consumir álcool nas 24h anteriores.\n\n" +
+                "Nos vemos em breve! Qualquer dúvida estamos por aqui. 🎨✨",
+                customHeader,
+                customerName,
+                depositFormatted,
+                dateFormatted,
+                timeFormatted,
+                studioName
+        );
+
+        evolutionApiClient.sendTextMessage(customerPhone, confirmationMessage);
+
+        if (sessionRepository != null) {
+            try {
+                sessionRepository.findByCustomer(appointment.getCustomer())
+                        .ifPresent(session -> {
+                            if (appointment.getArtist() != null) {
+                                session.setAssignedUser(appointment.getArtist());
+                                session.setAssignedArtistName(appointment.getArtist().getName());
+                                sessionRepository.save(session);
+                            }
+                            if (chatService != null) {
+                                chatService.recordBotMessage(session, appointment.getCustomer(), confirmationMessage);
+                            }
+                        });
+            } catch (Exception e) {
+                log.warn("Falha ao registrar mensagem de confirmação no histórico do chat: {}", e.getMessage());
+            }
+        }
+
+        if (studioAdminController != null) {
+            try {
+                studioAdminController.publishNotification(
+                        "PAYMENT_RECEIVED",
+                        "Sinal Confirmado!",
+                        "Pagamento de R$ " + depositFormatted + " aprovado para " + customerName + ".",
+                        customerPhone
+                );
+            } catch (Exception e) {
+                log.warn("Falha ao publicar notificação de pagamento no painel: {}", e.getMessage());
+            }
+        }
+    }
+
+    private String extractSlugFromPaymentUrl(String paymentUrl) {
+        if (paymentUrl == null || paymentUrl.isBlank()) {
+            return null;
+        }
+        String clean = paymentUrl.trim();
+        int qIdx = clean.indexOf('?');
+        if (qIdx >= 0) {
+            clean = clean.substring(0, qIdx);
+        }
+        while (clean.endsWith("/")) {
+            clean = clean.substring(0, clean.length() - 1);
+        }
+        int lastSlash = clean.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash < clean.length() - 1) {
+            return clean.substring(lastSlash + 1);
+        }
+        return null;
     }
 }
