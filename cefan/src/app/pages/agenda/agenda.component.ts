@@ -164,8 +164,7 @@ export interface CalendarDayColumn {
           <select
             class="artist-select-control"
             [ngModel]="selectedArtistId()"
-            (ngModelChange)="selectedArtistId.set($event)"
-            style="background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.55rem 0.85rem; border-radius: var(--radius-md); font-size: 0.82rem; outline: none;">
+            (ngModelChange)="selectedArtistId.set($event)">
             <option value="ALL">Todos os Profissionais ({{ professionals().length }})</option>
             <option *ngFor="let prof of professionals()" [value]="prof.id">
               👨‍🎨 {{ prof.name }}
@@ -173,8 +172,7 @@ export interface CalendarDayColumn {
           </select>
         </div>
 
-        <div class="artist-lock-badge" *ngIf="authService.isAuthenticated() && !authService.isOwner()"
-             style="font-size: 0.78rem; font-weight: 600; color: #34d399; background: rgba(16, 185, 129, 0.12); padding: 0.4rem 0.75rem; border-radius: var(--radius-full); border: 1px solid rgba(16, 185, 129, 0.3);">
+        <div class="artist-lock-badge" *ngIf="authService.isAuthenticated() && !authService.isOwner()">
           🔒 Agenda Individual: {{ authService.currentUser()?.name }}
         </div>
 
@@ -447,9 +445,7 @@ export interface CalendarDayColumn {
 
           <div class="input-group" *ngIf="authService.isOwner() && professionals().length > 0">
             <label>Profissional Responsável</label>
-            <select
-              [(ngModel)]="createForm.artistId"
-              style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-primary); font-size: 0.9rem; outline: none;">
+            <select [(ngModel)]="createForm.artistId">
               <option value="">Selecionar Tatuador / Piercer...</option>
               <option *ngFor="let prof of professionals()" [value]="prof.id">
                 {{ prof.name }} ({{ prof.specialties || 'Tatuador' }})
@@ -695,8 +691,46 @@ export interface CalendarDayColumn {
       background: none;
       border: none;
       color: inherit;
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       cursor: pointer;
+      min-width: 40px;
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .artist-filter-box {
+      min-width: 220px;
+    }
+
+    .artist-select-control {
+      width: 100%;
+      min-height: 44px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.55rem 0.85rem;
+      border-radius: var(--radius-md);
+      font-size: 16px;
+      font-family: inherit;
+      outline: none;
+
+      &:focus {
+        border-color: var(--accent-primary);
+      }
+    }
+
+    .artist-lock-badge {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 0.5rem 0.85rem;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      text-align: center;
     }
 
     /* Controls & Filter Bar */
@@ -734,7 +768,7 @@ export interface CalendarDayColumn {
         border: none;
         color: var(--text-primary);
         font-family: inherit;
-        font-size: 0.875rem;
+        font-size: 16px;
         outline: none;
         width: 100%;
       }
@@ -1306,26 +1340,76 @@ export interface CalendarDayColumn {
 
       .metrics-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(220px, 1fr));
-        gap: 0.75rem;
-        margin-bottom: 1.5rem;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        scrollbar-width: none;
-        padding-bottom: 0.25rem;
-
-        &::-webkit-scrollbar {
-          display: none;
-        }
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin-bottom: 1.25rem;
 
         .metric-card {
-          scroll-snap-align: start;
-          padding: 1rem;
+          padding: 0.85rem;
+          gap: 0.65rem;
+          min-width: 0;
+        }
+
+        .metric-icon {
+          width: 38px;
+          height: 38px;
+          flex-shrink: 0;
+
+          svg {
+            width: 18px;
+            height: 18px;
+          }
+        }
+
+        .metric-data {
+          min-width: 0;
         }
 
         .metric-value {
+          font-size: 1.1rem;
           white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
+
+        .metric-label {
+          font-size: 0.7rem;
+          line-height: 1.25;
+        }
+      }
+
+      .controls-card {
+        padding: 1rem;
+        gap: 0.75rem;
+      }
+
+      .artist-filter-box {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .calendar-card {
+        padding: 0.85rem;
+      }
+
+      .calendar-legend {
+        gap: 0.5rem 0.85rem;
+        font-size: 0.72rem;
+      }
+
+      .calendar-grid {
+        min-width: 680px;
+
+        .hour-col, .hour-cell {
+          width: 60px;
+          font-size: 0.72rem;
+          padding: 0.35rem;
+        }
+      }
+
+      .slot-cell {
+        min-width: 96px;
+        padding: 0.3rem;
       }
 
       .status-filters {
@@ -1392,7 +1476,7 @@ export interface CalendarDayColumn {
         background: var(--bg-card);
         border: 1px solid var(--border-color);
         border-radius: var(--radius-lg);
-        padding: 1.15rem;
+        padding: 1rem;
         margin-bottom: 0.85rem;
         box-shadow: var(--shadow-sm);
       }
@@ -1405,10 +1489,11 @@ export interface CalendarDayColumn {
         align-items: center;
         text-align: right;
         gap: 0.75rem;
+        min-width: 0;
 
         &::before {
           content: attr(data-label);
-          font-size: 0.75rem;
+          font-size: 0.72rem;
           font-weight: 600;
           color: var(--text-muted);
           text-transform: uppercase;
@@ -1419,11 +1504,18 @@ export interface CalendarDayColumn {
 
         &:first-child {
           padding-top: 0;
+          padding-bottom: 0.75rem;
+          text-align: left;
           &::before {
             display: none;
           }
           .customer-info {
             width: 100%;
+            align-items: flex-start;
+            text-align: left;
+          }
+          .customer-name {
+            font-size: 1rem;
           }
         }
 
@@ -1438,21 +1530,32 @@ export interface CalendarDayColumn {
         }
       }
 
+      .date-info,
+      .pricing-info {
+        align-items: flex-end;
+      }
+
       .action-buttons {
         width: 100%;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
         gap: 0.5rem;
 
         .btn-action {
-          min-height: 44px;
+          min-height: 42px;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 0.8rem;
-          padding: 0.5rem;
+          font-size: 0.78rem;
+          padding: 0.45rem 0.5rem;
           border-radius: var(--radius-md);
         }
+      }
+    }
+
+    @media (max-width: 380px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
       }
     }
   `]
