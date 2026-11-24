@@ -132,6 +132,10 @@ public class TenantConfig {
     @Builder.Default
     private Boolean orcamentoShowAdjustHint = true;
 
+    @Column(name = "whatsapp_provider", nullable = false, length = 30)
+    @Builder.Default
+    private String whatsappProvider = "evolution";
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
