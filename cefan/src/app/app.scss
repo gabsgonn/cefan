@@ -1,5 +1,6 @@
 .main-content {
-  min-height: calc(100vh - 70px);
+  min-height: calc(100vh - 56px);
+  min-height: calc(100dvh - 56px);
   background-color: var(--bg-main);
   padding-bottom: calc(76px + var(--safe-bottom));
   -webkit-overflow-scrolling: touch;
@@ -15,8 +16,17 @@ body:has(.chat-workspace.session-active) {
   }
 }
 
+/* On login page, remove extra bottom nav spacing */
+body:has(app-login) {
+  .main-content {
+    padding-bottom: 0;
+  }
+}
+
 @media (min-width: 769px) {
   .main-content {
+    min-height: calc(100vh - 64px);
+    min-height: calc(100dvh - 64px);
     padding-bottom: 2.5rem;
   }
 }

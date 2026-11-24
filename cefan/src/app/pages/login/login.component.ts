@@ -56,11 +56,12 @@ import { AuthService } from '../../core/services/auth.service';
   `,
   styles: [`
     .login-wrapper {
-      min-height: calc(100vh - 70px);
+      min-height: calc(100vh - 56px);
+      min-height: calc(100dvh - 56px);
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem 1rem calc(40px + var(--safe-bottom));
+      padding: 1.25rem 0.85rem calc(24px + var(--safe-bottom));
     }
 
     .login-card {
@@ -228,12 +229,26 @@ import { AuthService } from '../../core/services/auth.service';
 
     @media (max-width: 480px) {
       .login-card {
-        padding: 1.75rem 1.25rem;
+        padding: 1.5rem 1.15rem;
         border-radius: var(--radius-lg);
       }
 
-      .login-brand h2 {
-        font-size: 1.25rem;
+      .login-brand {
+        margin-bottom: 1.5rem;
+
+        h2 {
+          font-size: 1.25rem;
+        }
+      }
+
+      .quick-credentials .quick-buttons {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.45rem;
+      }
+
+      .quick-credentials .quick-btn {
+        width: 100%;
       }
     }
   `]

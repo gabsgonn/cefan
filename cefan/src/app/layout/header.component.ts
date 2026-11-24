@@ -643,12 +643,26 @@ import { NotificationEvent } from '../core/models/appointment.model';
       }
 
       .header-container {
-        padding: 0 0.85rem;
+        padding: 0 0.75rem;
         min-height: 56px;
+        gap: 0.5rem;
       }
 
       .brand {
-        max-width: 185px;
+        max-width: none;
+        flex: 1;
+        min-width: 0;
+        gap: 0.55rem;
+      }
+
+      .logo-icon {
+        width: 34px;
+        height: 34px;
+      }
+
+      .header-right {
+        gap: 0.4rem;
+        flex-shrink: 0;
       }
 
       .status-label {
@@ -656,19 +670,47 @@ import { NotificationEvent } from '../core/models/appointment.model';
       }
 
       .system-status {
-        padding: 0.35rem;
+        padding: 0.45rem;
+      }
+
+      .notif-wrapper {
+        position: static;
+      }
+
+      .notif-btn {
+        width: 38px;
+        height: 38px;
+      }
+
+      .notif-dropdown {
+        position: fixed;
+        top: calc(60px + var(--safe-top));
+        left: 0.75rem;
+        right: 0.75rem;
+        width: auto;
+        max-width: none;
+      }
+
+      .notif-clear {
+        width: 36px;
+        height: 36px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .user-profile {
-        padding: 0.2rem;
+        padding: 0.15rem;
         border: none;
         background: transparent;
       }
 
       .logout-btn {
         padding: 0;
-        width: 44px;
-        height: 44px;
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
+        min-height: 38px;
       }
     }
   `]
