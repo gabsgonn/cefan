@@ -56,6 +56,15 @@ public class Appointment {
     @Column(name = "mp_payment_id")
     private String mpPaymentId;
 
+    @Column(name = "payment_provider", length = 30)
+    private String paymentProvider;
+
+    @Column(name = "payment_reference", length = 120)
+    private String paymentReference;
+
+    @Column(name = "payment_url", columnDefinition = "TEXT")
+    private String paymentUrl;
+
     @Column(name = "mp_payment_link", columnDefinition = "TEXT")
     private String mpPaymentLink;
 

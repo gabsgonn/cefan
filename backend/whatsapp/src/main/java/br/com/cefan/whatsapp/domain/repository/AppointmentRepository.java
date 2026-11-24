@@ -31,6 +31,12 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     @Query("SELECT a FROM Appointment a WHERE a.mpPaymentId = :mpPaymentId")
     Optional<Appointment> findByMpPaymentIdForUpdate(@Param("mpPaymentId") String mpPaymentId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM Appointment a WHERE (a.paymentProvider = :provider AND a.paymentReference = :reference) OR (:provider = 'mercadopago' AND a.mpPaymentId = :reference)")
+    Optional<Appointment> findByPaymentProviderAndReferenceForUpdate(
+            @Param("provider") String provider,
+            @Param("reference") String reference);
+
     List<Appointment> findByStatusAndScheduledStartBetweenAndReminder24hSentFalse(
             AppointmentStatus status, OffsetDateTime start, OffsetDateTime end);
 }

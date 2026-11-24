@@ -19,16 +19,16 @@ public class TenantConfigService {
 
     @Transactional(readOnly = true)
     public TenantConfigDto getConfig() {
-        TenantConfig config = tenantConfigRepository.findAll().stream()
-                .findFirst()
+        TenantConfig config = tenantConfigRepository.findFirstByOrderByUpdatedAtDesc()
+                .or(() -> tenantConfigRepository.findAll().stream().findFirst())
                 .orElseGet(this::createDefaultConfig);
         return TenantConfigDto.fromEntity(config);
     }
 
     @Transactional
     public TenantConfigDto updateConfig(TenantConfigDto dto) {
-        TenantConfig config = tenantConfigRepository.findAll().stream()
-                .findFirst()
+        TenantConfig config = tenantConfigRepository.findFirstByOrderByUpdatedAtDesc()
+                .or(() -> tenantConfigRepository.findAll().stream().findFirst())
                 .orElseGet(this::createDefaultConfig);
 
         config.setStudioName(dto.getStudioName());

@@ -136,6 +136,13 @@ public class TenantConfig {
     @Builder.Default
     private String whatsappProvider = "evolution";
 
+    @Column(name = "payment_provider", nullable = false, length = 30)
+    @Builder.Default
+    private String paymentProvider = "mercadopago";
+
+    @Column(name = "infinitepay_handle", length = 100)
+    private String infinitepayHandle;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
