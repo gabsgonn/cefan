@@ -15,6 +15,7 @@ import { AppointmentService } from '../../core/services/appointment.service';
 import { ChatService, BotStatus } from '../../core/services/chat.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ProfessionalService } from '../../core/services/professional.service';
+import { TenantConfigService } from '../../core/services/tenant-config.service';
 import { ConversationSession, ConversationState, ChatMessage } from '../../core/models/appointment.model';
 import { Professional } from '../../core/models/professional.model';
 import { ModalComponent } from '../../shared/components/modal/modal.component';
@@ -236,6 +237,17 @@ export interface AiAnalysisParsed {
                   </option>
                 </select>
               </div>
+
+              <!-- Botão rápido de Demo: Sinal R$ 1,00 (apenas Dono) -->
+              <button
+                *ngIf="authService.isOwner()"
+                type="button"
+                class="btn btn-secondary"
+                [disabled]="togglingDemoDeposit()"
+                title="Alternar sinal temporariamente para R$ 1,00 (demonstração ao vivo)"
+                (click)="toggleDemoDeposit()">
+                <span>{{ demoDepositActive() ? '✅ Sinal R$ 1 (Voltar 30%)' : '💸 Sinal R$ 1 (Demo)' }}</span>
+              </button>
 
               <!-- Reset Bot Button -->
               <button
@@ -1734,6 +1746,10 @@ export class AtendimentosComponent implements OnInit, OnDestroy {
   readonly selectedSession = signal<ConversationSession | null>(null);
   readonly messages = signal<ChatMessage[]>([]);
 
+  private readonly tenantConfigService = inject(TenantConfigService);
+  readonly demoDepositActive = signal<boolean>(false);
+  readonly togglingDemoDeposit = signal<boolean>(false);
+
   readonly loadingSessions = signal<boolean>(false);
   readonly loadingMessages = signal<boolean>(false);
   readonly sending = signal<boolean>(false);
@@ -2293,6 +2309,39 @@ export class AtendimentosComponent implements OnInit, OnDestroy {
         el.scrollTop = el.scrollHeight;
       }
     }, 30);
+  }
+
+  toggleDemoDeposit(): void {
+    this.togglingDemoDeposit.set(true);
+    this.tenantConfigService.getConfig().subscribe({
+      next: (cfg) => {
+        const isCurrentlyDemo = Number(cfg.minDepositAmount ?? 50) <= 1 && Number(cfg.signalPercentage ?? 30) <= 1;
+        const updated = {
+          ...cfg,
+          signalPercentage: isCurrentlyDemo ? 30 : 0.01,
+          minDepositAmount: isCurrentlyDemo ? 50 : 1
+        };
+        this.tenantConfigService.updateConfig(updated).subscribe({
+          next: () => {
+            this.togglingDemoDeposit.set(false);
+            this.demoDepositActive.set(!isCurrentlyDemo);
+            this.showToast(
+              isCurrentlyDemo
+                ? 'Sinal restaurado para o padrão (30%, mín. R$ 50).'
+                : 'Modo Demo ativo: próximo link de sinal será de R$ 1,00!'
+            );
+          },
+          error: () => {
+            this.togglingDemoDeposit.set(false);
+            this.showToast('Erro ao atualizar valor do sinal.', 'error');
+          }
+        });
+      },
+      error: () => {
+        this.togglingDemoDeposit.set(false);
+        this.showToast('Erro ao carregar configurações do estúdio.', 'error');
+      }
+    });
   }
 
   private showToast(msg: string, type: 'success' | 'error' = 'success'): void {
