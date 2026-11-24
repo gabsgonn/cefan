@@ -56,7 +56,7 @@ public class InfinitePayWebhookController {
                 return ResponseEntity.ok().build();
             }
 
-            paymentInboxService.enqueueIdempotent(
+            var event = paymentInboxService.enqueueIdempotent(
                     InfinitePayPaymentGateway.PROVIDER,
                     appointmentId,
                     orderNsu,
@@ -65,6 +65,7 @@ public class InfinitePayWebhookController {
                     captureMethod,
                     "WEBHOOK"
             );
+            paymentInboxService.processNowWithRetry(event);
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             log.error("Falha ao gravar webhook InfinitePay na inbox para appointmentId=[{}]: {}", appointmentId, e.getMessage(), e);

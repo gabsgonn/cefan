@@ -76,6 +76,40 @@ public class PaymentInboxService {
         }
     }
 
+    /**
+     * Processa o evento imediatamente (sem esperar o worker), tentando até 2 vezes.
+     * Usado pelo retorno do checkout e pelo webhook para avisar o cliente no WhatsApp na hora.
+     */
+    public void processNowWithRetry(PaymentInboxEvent event) {
+        if (event == null || event.getId() == null) {
+            return;
+        }
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                PaymentInboxEvent current = inboxRepository.findById(event.getId()).orElse(null);
+                if (current == null || current.getStatus() != PaymentInboxEvent.Status.PENDING) {
+                    return;
+                }
+                processSingleEvent(current, OffsetDateTime.now(AgendamentoStateHandler.STUDIO_ZONE));
+                PaymentInboxEvent after = inboxRepository.findById(event.getId()).orElse(null);
+                if (after == null || after.getStatus() != PaymentInboxEvent.Status.PENDING) {
+                    return;
+                }
+            } catch (Exception e) {
+                log.warn("Tentativa {} de processar pagamento imediatamente falhou (tx={}): {}",
+                        attempt, event.getTransactionNsu(), e.getMessage());
+            }
+            if (attempt < 2) {
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
     public void processSingleEvent(PaymentInboxEvent event, OffsetDateTime now) {
         UUID lookupId = event.getAppointmentId() != null ? event.getAppointmentId() : event.getOrderNsu();
         Appointment appointment = (lookupId != null)

@@ -48,8 +48,7 @@ public class InfinitePayRedirectController {
                         captureMethod,
                         "REDIRECT"
                 );
-                paymentInboxService.processSingleEvent(event, java.time.OffsetDateTime.now(
-                        br.com.cefan.whatsapp.application.statemachine.handler.AgendamentoStateHandler.STUDIO_ZONE));
+                paymentInboxService.processNowWithRetry(event);
             } catch (Exception e) {
                 log.warn("Falha ao registrar/processar retorno redirect InfinitePay: {}", e.getMessage());
             }
