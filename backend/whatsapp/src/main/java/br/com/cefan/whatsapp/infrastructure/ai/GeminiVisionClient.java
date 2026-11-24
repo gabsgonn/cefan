@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
@@ -21,25 +22,33 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
 public class GeminiVisionClient {
 
     private final RestClient restClient;
+    private final String baseUrl;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     @Getter
     private final String model;
     @Getter
     private final String fallbackModel;
+    private final List<String> configuredModelChain;
+    private final Map<String, Integer> modelTimeoutsMs;
+    private final Map<Integer, RestClient> clientsByTimeout = new ConcurrentHashMap<>();
     @Getter
     private final int maxAttemptsPerModel;
     @Getter
@@ -55,7 +64,7 @@ public class GeminiVisionClient {
             String apiKey,
             String model,
             String baseUrl) {
-        this(objectMapper, apiKey, model, null, baseUrl, null, 2, 300L, 18000, "low");
+        this(objectMapper, apiKey, model, null, baseUrl, null, 2, 300L, 18000, "low", null, null);
     }
 
     public GeminiVisionClient(
@@ -64,7 +73,22 @@ public class GeminiVisionClient {
             String model,
             String baseUrl,
             UserRepository userRepository) {
-        this(objectMapper, apiKey, model, null, baseUrl, userRepository, 2, 300L, 18000, "low");
+        this(objectMapper, apiKey, model, null, baseUrl, userRepository, 2, 300L, 18000, "low", null, null);
+    }
+
+    public GeminiVisionClient(
+            ObjectMapper objectMapper,
+            String apiKey,
+            String model,
+            String fallbackModel,
+            String baseUrl,
+            UserRepository userRepository,
+            int maxAttemptsPerModel,
+            long initialBackoffMs,
+            int timeoutMs,
+            String thinkingLevel) {
+        this(objectMapper, apiKey, model, fallbackModel, baseUrl, userRepository,
+                maxAttemptsPerModel, initialBackoffMs, timeoutMs, thinkingLevel, null, null);
     }
 
     @Autowired
@@ -78,25 +102,82 @@ public class GeminiVisionClient {
             @Value("${gemini.api.max-attempts:2}") int maxAttemptsPerModel,
             @Value("${gemini.api.backoff-ms:500}") long initialBackoffMs,
             @Value("${gemini.api.timeout-ms:18000}") int timeoutMs,
-            @Value("${gemini.api.thinking-level:low}") String thinkingLevel) {
+            @Value("${gemini.api.thinking-level:low}") String thinkingLevel,
+            @Value("${gemini.api.model-chain:}") String modelChainCsv,
+            @Value("${gemini.api.model-timeouts-ms:}") String modelTimeoutsCsv) {
         this.objectMapper = objectMapper;
+        this.baseUrl = baseUrl;
         this.apiKey = (apiKey != null) ? apiKey.trim() : "";
         this.model = (model != null && !model.isBlank()) ? model.trim() : "gemini-3.5-flash";
         this.fallbackModel = resolveFallbackModel(this.model, fallbackModel);
+        this.configuredModelChain = parseModelChain(modelChainCsv);
+        this.modelTimeoutsMs = parseModelTimeouts(modelTimeoutsCsv);
         this.userRepository = userRepository;
         this.maxAttemptsPerModel = Math.max(1, maxAttemptsPerModel);
         this.initialBackoffMs = Math.max(0L, initialBackoffMs);
         this.timeoutMs = Math.max(1000, timeoutMs);
         this.thinkingLevel = (thinkingLevel != null) ? thinkingLevel.trim() : "";
+        this.restClient = buildRestClient(baseUrl, this.timeoutMs);
+    }
 
+    private static RestClient buildRestClient(String baseUrl, int readTimeoutMs) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(Duration.ofMillis(Math.min(5000, this.timeoutMs)));
-        requestFactory.setReadTimeout(Duration.ofMillis(this.timeoutMs));
-
-        this.restClient = RestClient.builder()
+        requestFactory.setConnectTimeout(Duration.ofMillis(Math.min(5000, readTimeoutMs)));
+        requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+        return RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .build();
+    }
+
+    private static List<String> parseModelChain(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        Set<String> models = new LinkedHashSet<>();
+        for (String token : csv.split(",")) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                models.add(trimmed);
+            }
+        }
+        return new ArrayList<>(models);
+    }
+
+    private static Map<String, Integer> parseModelTimeouts(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return Map.of();
+        }
+        Map<String, Integer> map = new LinkedHashMap<>();
+        for (String entry : csv.split(",")) {
+            String[] kv = entry.split("=");
+            if (kv.length == 2) {
+                String k = kv[0].trim();
+                try {
+                    int ms = Integer.parseInt(kv[1].trim());
+                    if (!k.isEmpty() && ms >= 1000) {
+                        map.put(k, ms);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return map;
+    }
+
+    public int resolveTimeoutMsForModel(String candidateModel) {
+        if (candidateModel != null && modelTimeoutsMs.containsKey(candidateModel)) {
+            return modelTimeoutsMs.get(candidateModel);
+        }
+        return timeoutMs;
+    }
+
+    private RestClient clientForModel(String candidateModel) {
+        int modelTimeout = resolveTimeoutMsForModel(candidateModel);
+        if (modelTimeout == this.timeoutMs) {
+            return this.restClient;
+        }
+        return clientsByTimeout.computeIfAbsent(modelTimeout, t -> buildRestClient(this.baseUrl, t));
     }
 
     private static String resolveFallbackModel(String primaryModel, String configuredFallback) {
@@ -110,6 +191,9 @@ public class GeminiVisionClient {
     }
 
     public List<String> getModelChain() {
+        if (!configuredModelChain.isEmpty()) {
+            return new ArrayList<>(configuredModelChain);
+        }
         Set<String> chain = new LinkedHashSet<>();
         if (model != null && !model.isBlank()) {
             chain.add(model);
@@ -155,52 +239,70 @@ public class GeminiVisionClient {
 
             for (int attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
                 long startNs = System.nanoTime();
-                log.info("GEMINI_STEP [action=REQUEST, model={}, attempt={}/{}, base64Bytes={}, thinkingLevel={}]",
-                        candidateModel, attempt, maxAttemptsPerModel, sanitizedBase64.length(),
+                int effectiveTimeoutMs = resolveTimeoutMsForModel(candidateModel);
+                log.info("GEMINI_STEP [action=REQUEST, model={}, attempt={}/{}, timeoutMs={}, base64Bytes={}, thinking={}]",
+                        candidateModel, attempt, maxAttemptsPerModel, effectiveTimeoutMs, sanitizedBase64.length(),
                         resolveEffectiveThinkingDescription(candidateModel));
 
+                Integer lastStatus = null;
+                String lastContentType = null;
+                String lastBodyPreview = null;
                 try {
-                    GeminiGenerateContentResponse response = restClient.post()
+                    ResponseEntity<byte[]> entity = clientForModel(candidateModel).post()
                             .uri("/models/{model}:generateContent?key={apiKey}", candidateModel, apiKey)
                             .contentType(MediaType.APPLICATION_JSON)
                             .body(requestBody)
                             .retrieve()
-                            .body(GeminiGenerateContentResponse.class);
+                            .toEntity(byte[].class);
 
                     long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
+                    lastStatus = entity.getStatusCode().value();
+                    lastContentType = entity.getHeaders().getContentType() != null
+                            ? entity.getHeaders().getContentType().toString()
+                            : "none";
+                    byte[] rawBytes = entity.getBody();
+                    String rawBody = (rawBytes != null) ? new String(rawBytes, StandardCharsets.UTF_8) : "";
+                    lastBodyPreview = previewBodySafely(rawBody, apiKey);
 
-                    if (response != null) {
-                        String rawJson = response.extractFirstText();
-                        if (rawJson != null && !rawJson.isBlank()) {
-                            String cleanJson = cleanJsonString(rawJson);
-                            TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
-                            postProcessResult(result);
-                            result.setFallback(false);
-                            log.info("GEMINI_STEP [action=SUCCESS, model={}, attempt={}/{}, latencyMs={}, style={}, size={}, hours={}, artists={}]",
-                                    candidateModel, attempt, maxAttemptsPerModel, elapsedMs,
-                                    result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getRecommendedArtists());
-                            return result;
+                    if (!rawBody.isBlank()) {
+                        GeminiGenerateContentResponse response = objectMapper.readValue(rawBody, GeminiGenerateContentResponse.class);
+                        if (response != null) {
+                            String rawJson = response.extractFirstText();
+                            if (rawJson != null && !rawJson.isBlank()) {
+                                String cleanJson = cleanJsonString(rawJson);
+                                TattooAnalysisResult result = objectMapper.readValue(cleanJson, TattooAnalysisResult.class);
+                                postProcessResult(result);
+                                result.setFallback(false);
+                                log.info("GEMINI_STEP [action=SUCCESS, model={}, attempt={}/{}, latencyMs={}, style={}, size={}, hours={}, artists={}]",
+                                        candidateModel, attempt, maxAttemptsPerModel, elapsedMs,
+                                        result.getStyle(), result.getSizeCategory(), result.getEstimatedHours(), result.getRecommendedArtists());
+                                return result;
+                            }
                         }
                     }
 
-                    log.warn("GEMINI_STEP [action=EMPTY_RESPONSE, model={}, attempt={}/{}, latencyMs={}]",
-                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs);
+                    log.warn("GEMINI_STEP [action=EMPTY_RESPONSE, model={}, attempt={}/{}, status={}, contentType={}, latencyMs={}, bodyPreview={}]",
+                            candidateModel, attempt, maxAttemptsPerModel, lastStatus, lastContentType, elapsedMs, lastBodyPreview);
                     break; // Sem resposta útil deste modelo -> avança para próximo modelo da cadeia
                 } catch (HttpStatusCodeException httpEx) {
                     long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
                     int statusCode = httpEx.getStatusCode().value();
+                    String ct = (httpEx.getResponseHeaders() != null && httpEx.getResponseHeaders().getContentType() != null)
+                            ? httpEx.getResponseHeaders().getContentType().toString()
+                            : "none";
+                    String preview = previewBodySafely(httpEx.getResponseBodyAsString(), apiKey);
                     boolean retryableStatus = (statusCode == 429 || statusCode == 503);
 
                     if (retryableStatus && attempt < maxAttemptsPerModel) {
                         long backoff = initialBackoffMs * (1L << (attempt - 1));
-                        log.warn("GEMINI_STEP [action=RETRY_BACKOFF, model={}, attempt={}/{}, status={}, backoffMs={}, latencyMs={}]: {}",
-                                candidateModel, attempt, maxAttemptsPerModel, statusCode, backoff, elapsedMs, httpEx.getMessage());
+                        log.warn("GEMINI_STEP [action=RETRY_BACKOFF, model={}, attempt={}/{}, status={}, contentType={}, backoffMs={}, latencyMs={}, bodyPreview={}]",
+                                candidateModel, attempt, maxAttemptsPerModel, statusCode, ct, backoff, elapsedMs, preview);
                         sleepQuietly(backoff);
                         continue;
                     }
 
-                    log.warn("GEMINI_STEP [action=MODEL_FAILED, model={}, attempt={}/{}, status={}, latencyMs={}]: {}",
-                            candidateModel, attempt, maxAttemptsPerModel, statusCode, elapsedMs, httpEx.getMessage());
+                    log.warn("GEMINI_STEP [action=MODEL_FAILED, model={}, attempt={}/{}, status={}, contentType={}, latencyMs={}, bodyPreview={}]",
+                            candidateModel, attempt, maxAttemptsPerModel, statusCode, ct, elapsedMs, preview);
                     break;
                 } catch (ResourceAccessException ioEx) {
                     long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
@@ -210,12 +312,13 @@ public class GeminiVisionClient {
                     }
                     log.warn("GEMINI_STEP [action={}, model={}, attempt={}/{}, latencyMs={}]: {}",
                             isTimeout ? "TIMEOUT" : "NETWORK_ERROR",
-                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs, ioEx.getMessage());
+                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs, previewBodySafely(ioEx.getMessage(), apiKey));
                     break;
                 } catch (Exception e) {
                     long elapsedMs = Duration.ofNanos(System.nanoTime() - startNs).toMillis();
-                    log.warn("GEMINI_STEP [action=UNEXPECTED_ERROR, model={}, attempt={}/{}, latencyMs={}]: {}",
-                            candidateModel, attempt, maxAttemptsPerModel, elapsedMs, e.getMessage());
+                    log.warn("GEMINI_STEP [action=UNEXPECTED_ERROR, model={}, attempt={}/{}, status={}, contentType={}, latencyMs={}, bodyPreview={}]: {}",
+                            candidateModel, attempt, maxAttemptsPerModel, lastStatus, lastContentType, elapsedMs,
+                            lastBodyPreview, previewBodySafely(e.getMessage(), apiKey));
                     break;
                 }
             }
@@ -230,6 +333,17 @@ public class GeminiVisionClient {
         log.warn("GEMINI_FALLBACK ativado [motivo={}, modelsTried={}]: encaminhando para transbordo sem preço.",
                 fallbackReason, modelsToTry);
         return createFallbackResult(customerNotes);
+    }
+
+    static String previewBodySafely(String body, String secretKey) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        String sanitized = (secretKey != null && !secretKey.isBlank())
+                ? body.replace(secretKey, "***")
+                : body;
+        sanitized = sanitized.replaceAll("key=[^&\\s\"']+", "key=***");
+        return sanitized.length() > 300 ? sanitized.substring(0, 300) + "..." : sanitized;
     }
 
     private GeminiGenerateContentRequest buildRequestForModel(

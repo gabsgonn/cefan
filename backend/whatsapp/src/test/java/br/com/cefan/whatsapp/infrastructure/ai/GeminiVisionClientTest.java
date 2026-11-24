@@ -286,4 +286,63 @@ class GeminiVisionClientTest {
         assertEquals(0, g25Config.getThinkingBudget());
         assertNull(g25Config.getThinkingLevel());
     }
+
+    @Test
+    void shouldParseGeminiResponseRegardlessOfContentTypeApplicationOctetStreamOrJson() {
+        String geminiPayload = """
+                {
+                  "candidates": [
+                    {
+                      "content": {
+                        "parts": [
+                          {
+                            "text": "{\\"style\\":\\"Old School / Tradicional\\",\\"sizeCategory\\":\\"MEDIA\\",\\"estimatedHours\\":2.5,\\"complexityLevel\\":\\"MEDIA\\",\\"recommendedArtists\\":[\\"Rodrigo Old School\\"]}"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+                """;
+
+        for (org.springframework.http.MediaType mediaType : List.of(
+                org.springframework.http.MediaType.APPLICATION_OCTET_STREAM,
+                org.springframework.http.MediaType.APPLICATION_JSON)) {
+            org.springframework.web.client.RestClient.Builder builder =
+                    org.springframework.web.client.RestClient.builder().baseUrl("http://localhost:9999/v1beta");
+            org.springframework.test.web.client.MockRestServiceServer mockServer =
+                    org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+
+            mockServer.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                            "http://localhost:9999/v1beta/models/gemini-3.5-flash-lite:generateContent?key=secret-key"))
+                    .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                            geminiPayload.getBytes(StandardCharsets.UTF_8), mediaType));
+
+            GeminiVisionClient client = new GeminiVisionClient(
+                    objectMapper,
+                    "secret-key",
+                    "gemini-3.5-flash",
+                    "gemini-3.5-flash-lite",
+                    "http://localhost:9999/v1beta",
+                    null,
+                    2,
+                    10L,
+                    18000,
+                    "low",
+                    "gemini-3.5-flash-lite,gemini-3.5-flash",
+                    "gemini-3.5-flash-lite=18000,gemini-3.5-flash=25000"
+            );
+            org.springframework.test.util.ReflectionTestUtils.setField(client, "restClient", builder.build());
+
+            assertEquals(List.of("gemini-3.5-flash-lite", "gemini-3.5-flash"), client.getModelChain());
+            assertEquals(18000, client.resolveTimeoutMsForModel("gemini-3.5-flash-lite"));
+            assertEquals(25000, client.resolveTimeoutMsForModel("gemini-3.5-flash"));
+
+            TattooAnalysisResult result = client.analyzeTattoo("aGVsbG8=", "image/jpeg", "pantera");
+            mockServer.verify();
+            assertNotNull(result);
+            assertFalse(result.isFallback());
+            assertEquals("Old School / Tradicional", result.getStyle());
+        }
+    }
 }

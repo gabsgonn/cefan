@@ -93,7 +93,7 @@ public class MessageHandlingService {
 
         String pollMessageId = webhook.extractPollUpdateKeyId();
         if (!webhook.hasPollUpdates()) {
-            log.info("POLL_UPDATE [action=IGNORED, reason=NO_POLL_UPDATES, pollId={}, sessionState=N/A, expectedState=N/A]",
+            log.debug("POLL_UPDATE [action=IGNORED, reason=NO_POLL_UPDATES, pollId={}, sessionState=N/A, expectedState=N/A]",
                     pollMessageId);
             return;
         }
